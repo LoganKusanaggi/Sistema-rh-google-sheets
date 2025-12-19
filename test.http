@@ -1,0 +1,460 @@
+### =====================================================
+### ARQUIVO: test.http
+### =====================================================
+### Testes de API - Sistema RH Supabase v2.0
+### Use extensão REST Client ou Thunder Client no VS Code
+
+@baseURL = http://localhost:3000/api
+@prodURL = https://seu-projeto.vercel.app/api
+
+### ===== HEALTH CHECK =====
+GET {{baseURL}}/health
+
+### ===== COLABORADORES =====
+
+### Listar todos os colaboradores
+GET {{baseURL}}/colaboradores
+
+### Listar colaboradores ativos
+GET {{baseURL}}/colaboradores?status=ativo
+
+### Listar por departamento
+GET {{baseURL}}/colaboradores?departamento=TI
+
+### Buscar colaborador por CPF
+GET {{baseURL}}/colaboradores/12345678900
+
+### Criar novo colaborador
+POST {{baseURL}}/colaboradores
+Content-Type: application/json
+
+{
+  "cpf": "98765432100",
+  "nome_completo": "Maria Santos",
+  "email": "maria@empresa.com",
+  "telefone": "(11) 98765-4321",
+  "cargo": "Gerente",
+  "departamento": "Vendas",
+  "data_admissao": "2024-01-15",
+  "matricula": "MAT001",
+  "codigo_folha": "CF001",
+  "local_trabalho": "Matriz",
+  "cidade": "São Paulo"
+}
+
+### Atualizar colaborador
+PUT {{baseURL}}/colaboradores/98765432100
+Content-Type: application/json
+
+{
+  "cargo": "Gerente Senior",
+  "telefone": "(11) 99999-9999"
+}
+
+### Deletar colaborador
+DELETE {{baseURL}}/colaboradores/98765432100
+
+### Criar colaboradores em lote
+POST {{baseURL}}/colaboradores/batch
+Content-Type: application/json
+
+{
+  "colaboradores": [
+    {
+      "cpf": "11111111111",
+      "nome_completo": "Pedro Oliveira",
+      "email": "pedro@empresa.com",
+      "cargo": "Analista",
+      "departamento": "TI"
+    },
+    {
+      "cpf": "22222222222",
+      "nome_completo": "Ana Costa",
+      "email": "ana@empresa.com",
+      "cargo": "Coordenadora",
+      "departamento": "RH"
+    }
+  ]
+}
+
+### ===== FOLHA DE PAGAMENTO =====
+
+### Listar todas as folhas
+GET {{baseURL}}/folha
+
+### Listar folhas por período
+GET {{baseURL}}/folha?ano=2024&mes=12
+
+### Buscar folhas por CPF
+GET {{baseURL}}/folha/12345678900
+
+### Buscar folha específica por período
+GET {{baseURL}}/folha/12345678900/2024/12
+
+### Criar folha de pagamento
+POST {{baseURL}}/folha
+Content-Type: application/json
+
+{
+  "cpf": "12345678900",
+  "mes_referencia": 12,
+  "ano_referencia": 2024,
+  "salario_base": 5000.00,
+  "horas_extras": 500.00,
+  "adicional_noturno": 200.00,
+  "comissoes": 1000.00,
+  "inss": 550.00,
+  "irrf": 450.00,
+  "vale_transporte": 200.00,
+  "vale_refeicao": 400.00,
+  "status_pagamento": "pendente"
+}
+
+### Atualizar folha
+PUT {{baseURL}}/folha/{{folha_id}}
+Content-Type: application/json
+
+{
+  "status_pagamento": "pago",
+  "data_pagamento": "2024-12-05"
+}
+
+### Deletar folha
+DELETE {{baseURL}}/folha/{{folha_id}}
+
+### Criar folhas em lote
+POST {{baseURL}}/folha/batch
+Content-Type: application/json
+
+{
+  "folhas": [
+    {
+      "cpf": "12345678900",
+      "mes_referencia": 12,
+      "ano_referencia": 2024,
+      "salario_base": 5000.00,
+      "inss": 550.00,
+      "irrf": 450.00
+    }
+  ]
+}
+
+### ===== BENEFÍCIOS =====
+
+### Listar todos os benefícios
+GET {{baseURL}}/beneficios
+
+### Listar por tipo
+GET {{baseURL}}/beneficios?tipo=vale_refeicao
+
+### Buscar benefícios por CPF
+GET {{baseURL}}/beneficios/12345678900
+
+### Buscar benefícios por período
+GET {{baseURL}}/beneficios/12345678900/2024/12
+
+### Criar benefício
+POST {{baseURL}}/beneficios
+Content-Type: application/json
+
+{
+  "cpf": "12345678900",
+  "mes_referencia": 12,
+  "ano_referencia": 2024,
+  "tipo_beneficio": "vale_refeicao",
+  "descricao": "Vale Refeição Mensal",
+  "valor": 30.00,
+  "quantidade": 22,
+  "fornecedor": "Sodexo",
+  "status": "ativo"
+}
+
+### Atualizar benefício
+PUT {{baseURL}}/beneficios/{{beneficio_id}}
+Content-Type: application/json
+
+{
+  "valor": 35.00,
+  "quantidade": 22
+}
+
+### Deletar benefício
+DELETE {{baseURL}}/beneficios/{{beneficio_id}}
+
+### Criar benefícios em lote
+POST {{baseURL}}/beneficios/batch
+Content-Type: application/json
+
+{
+  "beneficios": [
+    {
+      "cpf": "12345678900",
+      "mes_referencia": 12,
+      "ano_referencia": 2024,
+      "tipo_beneficio": "plano_saude",
+      "valor": 350.00,
+      "quantidade": 1
+    }
+  ]
+}
+
+### ===== VARIÁVEL =====
+
+### Listar todas as variáveis
+GET {{baseURL}}/variavel
+
+### Listar por período
+GET {{baseURL}}/variavel?ano=2024&mes=12
+
+### Buscar variável por CPF
+GET {{baseURL}}/variavel/12345678900
+
+### Criar variável
+POST {{baseURL}}/variavel
+Content-Type: application/json
+
+{
+  "cpf": "12345678900",
+  "mes_referencia": 12,
+  "ano_referencia": 2024,
+  "caffeine_fat_meta": 50000.00,
+  "caffeine_fat_realizado": 55000.00,
+  "caffeine_pos_meta": 10,
+  "caffeine_pos_realizado": 12,
+  "sublyme_fat_meta": 30000.00,
+  "sublyme_fat_realizado": 32000.00,
+  "sublyme_pos_meta": 8,
+  "sublyme_pos_realizado": 9,
+  "koala_fat_meta": 20000.00,
+  "koala_fat_realizado": 22000.00,
+  "koala_pos_meta": 5,
+  "koala_pos_realizado": 6,
+  "salario_base": 3000.00,
+  "multiplicador": 1.5,
+  "status_aprovacao": "pendente"
+}
+
+### Atualizar variável
+PUT {{baseURL}}/variavel/{{variavel_id}}
+Content-Type: application/json
+
+{
+  "status_aprovacao": "aprovado",
+  "observacoes": "Metas atingidas"
+}
+
+### Criar variáveis em lote
+POST {{baseURL}}/variavel/batch
+Content-Type: application/json
+
+{
+  "variaveis": [
+    {
+      "cpf": "12345678900",
+      "mes_referencia": 12,
+      "ano_referencia": 2024,
+      "salario_base": 3000.00,
+      "multiplicador": 1.5
+    }
+  ]
+}
+
+### ===== APONTAMENTOS =====
+
+### Listar todos os apontamentos
+GET {{baseURL}}/apontamentos
+
+### Listar por período
+GET {{baseURL}}/apontamentos?ano=2024&mes=12
+
+### Listar por tipo
+GET {{baseURL}}/apontamentos?tipo=presenca
+
+### Buscar apontamentos por CPF
+GET {{baseURL}}/apontamentos/12345678900
+
+### Criar apontamento
+POST {{baseURL}}/apontamentos
+Content-Type: application/json
+
+{
+  "cpf": "12345678900",
+  "data_apontamento": "2024-12-19",
+  "tipo_apontamento": "presenca",
+  "hora_entrada": "08:00:00",
+  "hora_saida": "17:00:00",
+  "hora_inicio_intervalo": "12:00:00",
+  "hora_fim_intervalo": "13:00:00",
+  "horas_trabalhadas": 8.0,
+  "horas_extras": 0,
+  "status": "aprovado"
+}
+
+### Criar apontamento de falta
+POST {{baseURL}}/apontamentos
+Content-Type: application/json
+
+{
+  "cpf": "12345678900",
+  "data_apontamento": "2024-12-18",
+  "tipo_apontamento": "falta_justificada",
+  "falta": true,
+  "justificativa": "Atestado médico",
+  "atestado": true,
+  "status": "aprovado"
+}
+
+### Atualizar apontamento
+PUT {{baseURL}}/apontamentos/{{apontamento_id}}
+Content-Type: application/json
+
+{
+  "status": "aprovado",
+  "observacoes": "Aprovado pelo gestor"
+}
+
+### Criar apontamentos em lote
+POST {{baseURL}}/apontamentos/batch
+Content-Type: application/json
+
+{
+  "apontamentos": [
+    {
+      "cpf": "12345678900",
+      "data_apontamento": "2024-12-16",
+      "tipo_apontamento": "presenca",
+      "horas_trabalhadas": 8.0
+    },
+    {
+      "cpf": "12345678900",
+      "data_apontamento": "2024-12-17",
+      "tipo_apontamento": "presenca",
+      "horas_trabalhadas": 8.0
+    }
+  ]
+}
+
+### ===== SEGUROS =====
+
+### Listar todos os seguros
+GET {{baseURL}}/seguros
+
+### Listar por seguradora
+GET {{baseURL}}/seguros?seguradora=Porto%20Seguro
+
+### Buscar seguros por CPF
+GET {{baseURL}}/seguros/12345678900
+
+### Criar seguro
+POST {{baseURL}}/seguros
+Content-Type: application/json
+
+{
+  "colaborador_id": "{{colaborador_uuid}}",
+  "seguradora": "Porto Seguro",
+  "apolice": "AP123456",
+  "tipo_seguro": "vida",
+  "valor_cobertura": 100000.00,
+  "premio_mensal": 50.00,
+  "data_inicio": "2024-01-01",
+  "data_vencimento": "2025-01-01",
+  "beneficiario_nome": "Maria Silva",
+  "beneficiario_cpf": "98765432100",
+  "beneficiario_parentesco": "Cônjuge"
+}
+
+### Atualizar seguro
+PUT {{baseURL}}/seguros/{{seguro_id}}
+Content-Type: application/json
+
+{
+  "premio_mensal": 55.00,
+  "status": "ativo"
+}
+
+### ===== RELATÓRIOS =====
+
+### Listar tipos de relatórios disponíveis
+GET {{baseURL}}/relatorios/tipos
+
+### Gerar relatório de folha
+POST {{baseURL}}/relatorios/gerar
+Content-Type: application/json
+
+{
+  "tipo": "folha",
+  "cpfs": ["12345678900"],
+  "periodo": {
+    "mes": 12,
+    "ano": 2024
+  }
+}
+
+### Gerar relatório de benefícios
+POST {{baseURL}}/relatorios/gerar
+Content-Type: application/json
+
+{
+  "tipo": "beneficios",
+  "cpfs": ["12345678900"],
+  "periodo": {
+    "mes": 12,
+    "ano": 2024
+  }
+}
+
+### Gerar relatório de variável
+POST {{baseURL}}/relatorios/gerar
+Content-Type: application/json
+
+{
+  "tipo": "variavel",
+  "cpfs": ["12345678900"],
+  "periodo": {
+    "mes": 12,
+    "ano": 2024
+  }
+}
+
+### Gerar relatório de apontamentos
+POST {{baseURL}}/relatorios/gerar
+Content-Type: application/json
+
+{
+  "tipo": "apontamentos",
+  "cpfs": ["12345678900"],
+  "periodo": {
+    "mes": 12,
+    "ano": 2024
+  }
+}
+
+### Gerar relatório de seguros
+POST {{baseURL}}/relatorios/gerar
+Content-Type: application/json
+
+{
+  "tipo": "seguros",
+  "cpfs": ["12345678900"]
+}
+
+### Buscar colaboradores com filtros
+POST {{baseURL}}/colaboradores/buscar
+Content-Type: application/json
+
+{
+  "filtros": {
+    "status": "ativo",
+    "departamento": "Vendas",
+    "termo_busca": "Silva"
+  }
+}
+
+### ===== TESTES DE PRODUÇÃO =====
+### Altere @prodURL para sua URL da Vercel
+
+### Health check produção
+GET {{prodURL}}/health
+
+### Listar colaboradores produção
+GET {{prodURL}}/colaboradores

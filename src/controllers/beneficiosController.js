@@ -364,11 +364,54 @@ const beneficiosController = {
 
             if (error) throw error;
 
+
+
+            // =========================================================
+            // LÓGICA DE SNAPSHOT (HISTÓRICO)
+            // =========================================================
+            try {
+                const now = new Date();
+                const timestampStr = now.toLocaleString('pt-BR');
+                const nomeRelatorio = `Benefícios ${now.getTime()} - ${timestampStr}`;
+
+                const { data: relCriado, error: errCriacao } = await supabase
+                    .from('relatorios_gerados')
+                    .insert({
+                        nome: nomeRelatorio,
+                        tipo: 'beneficios',
+                        mes_referencia: beneficiosFormatados[0].mes_referencia,
+                        ano_referencia: beneficiosFormatados[0].ano_referencia,
+                        filtros_usados: { origem: 'upload_planilha', total_registros: beneficiosFormatados.length },
+                        status: 'gerado'
+                    })
+                    .select()
+                    .single();
+
+                if (!errCriacao && relCriado) {
+                    const itensParaSalvar = beneficiosFormatados.map(linha => ({
+                        relatorio_id: relCriado.id,
+                        cpf: linha.cpf,
+                        nome_colaborador: linha.nome_colaborador,
+                        dados_snapshot: linha
+                    }));
+
+                    const { error: errItens } = await supabase
+                        .from('relatorios_itens')
+                        .insert(itensParaSalvar);
+
+                    if (errItens) console.error('Erro ao salvar snapshot itens (Benefícios):', errItens);
+                } else {
+                    console.error('Erro ao criar snapshot header (Benefícios):', errCriacao);
+                }
+            } catch (snapError) {
+                console.error('Erro crítico no processo de snapshot (Benefícios):', snapError);
+            }
+
             res.status(201).json({
                 success: true,
                 data,
                 total: data.length,
-                message: `${data.length} benefício(s) processado(s) com sucesso`
+                message: `${data.length} benefício(s) processado(s) com sucesso. Histórico salvo.`
             });
         } catch (error) {
             console.error('Erro ao criar benefícios em lote:', error);

@@ -336,11 +336,52 @@ const apontamentosController = {
 
             if (error) throw error;
 
+            // =========================================================
+            // LÓGICA DE SNAPSHOT (HISTÓRICO)
+            // =========================================================
+            try {
+                const now = new Date();
+                const timestampStr = now.toLocaleString('pt-BR');
+                const nomeRelatorio = `Apontamentos ${now.getTime()} - ${timestampStr}`;
+
+                const { data: relCriado, error: errCriacao } = await supabase
+                    .from('relatorios_gerados')
+                    .insert({
+                        nome: nomeRelatorio,
+                        tipo: 'apontamentos',
+                        mes_referencia: apontamentosFormatados[0].mes_referencia,
+                        ano_referencia: apontamentosFormatados[0].ano_referencia,
+                        filtros_usados: { origem: 'upload_planilha', total_registros: apontamentosFormatados.length },
+                        status: 'gerado'
+                    })
+                    .select()
+                    .single();
+
+                if (!errCriacao && relCriado) {
+                    const itensParaSalvar = apontamentosFormatados.map(linha => ({
+                        relatorio_id: relCriado.id,
+                        cpf: linha.cpf,
+                        nome_colaborador: linha.nome_colaborador,
+                        dados_snapshot: linha
+                    }));
+
+                    const { error: errItens } = await supabase
+                        .from('relatorios_itens')
+                        .insert(itensParaSalvar);
+
+                    if (errItens) console.error('Erro ao salvar snapshot itens (Apontamentos):', errItens);
+                } else {
+                    console.error('Erro ao criar snapshot header (Apontamentos):', errCriacao);
+                }
+            } catch (snapError) {
+                console.error('Erro crítico no processo de snapshot (Apontamentos):', snapError);
+            }
+
             res.status(201).json({
                 success: true,
                 data,
                 total: data.length,
-                message: `${data.length} apontamento(s) processado(s) com sucesso`
+                message: `${data.length} apontamento(s) processado(s) com sucesso. Histórico salvo.`
             });
         } catch (error) {
             console.error('Erro ao criar apontamentos em lote:', error);

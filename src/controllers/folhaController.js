@@ -434,20 +434,68 @@ const folhaController = {
 
             if (error) throw error;
 
-            res.status(201).json({
-                success: true,
-                data,
-                total: data.length,
-                message: `${data.length} folha(s) processada(s) com sucesso`
-            });
-        } catch (error) {
-            console.error('Erro ao criar folhas em lote:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+        });
+
+        // =========================================================
+        // LÓGICA DE SNAPSHOT (HISTÓRICO)
+        // =========================================================
+        try {
+            // 1. Criar o cabeçalho do relatório (Snapshot)
+            // Ex Nome: "Folha Pagamento 01 - 22/12/2025 14:30"
+            const now = new Date();
+            const timestampStr = now.toLocaleString('pt-BR');
+            const nomeRelatorio = `Folha ${now.getTime()} - ${timestampStr}`;
+
+            const { data: relCriado, error: errCriacao } = await supabase
+                .from('relatorios_gerados')
+                .insert({
+                    nome: nomeRelatorio,
+                    tipo: 'folha',
+                    mes_referencia: folhasFormatadas[0].mes_referencia,
+                    ano_referencia: folhasFormatadas[0].ano_referencia,
+                    filtros_usados: { origem: 'upload_planilha', total_registros: folhasFormatadas.length },
+                    status: 'gerado'
+                })
+                .select()
+                .single();
+
+            if (!errCriacao && relCriado) {
+                // 2. Salvar os itens (Snapshot imutável)
+                const itensParaSalvar = folhasFormatadas.map(linha => ({
+                    relatorio_id: relCriado.id,
+                    cpf: linha.cpf,
+                    nome_colaborador: linha.nome_colaborador,
+                    dados_snapshot: linha
+                }));
+
+                const { error: errItens } = await supabase
+                    .from('relatorios_itens')
+                    .insert(itensParaSalvar);
+
+                if (errItens) console.error('Erro ao salvar snapshot itens (Folha):', errItens);
+            } else {
+                console.error('Erro ao criar snapshot header (Folha):', errCriacao);
+            }
+        } catch (snapError) {
+            // Não falha a requisição principal se o snapshot falhar, apenas loga
+            console.error('Erro crítico no processo de snapshot (Folha):', snapError);
         }
+
+        // Retorna sucesso da operação principal
+        res.status(201).json({
+            success: true,
+            data,
+            total: data.length,
+            message: `${data.length} folha(s) processada(s) com sucesso. Histórico salvo.`
+        });
+    } catch(error) {
+        console.error('Erro ao criar folhas em lote:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
+}
 
 };
 

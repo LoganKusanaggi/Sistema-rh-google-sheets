@@ -200,10 +200,54 @@ const variavelController = {
 
             if (error) throw error;
 
+
+
+            // =========================================================
+            // LÓGICA DE SNAPSHOT (HISTÓRICO)
+            // =========================================================
+            try {
+                const now = new Date();
+                const timestampStr = now.toLocaleString('pt-BR');
+                const nomeRelatorio = `Variável ${now.getTime()} - ${timestampStr}`;
+
+                const { data: relCriado, error: errCriacao } = await supabase
+                    .from('relatorios_gerados')
+                    .insert({
+                        nome: nomeRelatorio,
+                        tipo: 'variavel',
+                        mes_referencia: variaveisFormatadas[0].mes_referencia,
+                        ano_referencia: variaveisFormatadas[0].ano_referencia,
+                        filtros_usados: { origem: 'upload_planilha', total_registros: variaveisFormatadas.length },
+                        status: 'gerado'
+                    })
+                    .select()
+                    .single();
+
+                if (!errCriacao && relCriado) {
+                    const itensParaSalvar = variaveisFormatadas.map(linha => ({
+                        relatorio_id: relCriado.id,
+                        cpf: linha.cpf,
+                        nome_colaborador: linha.nome_vendedor,
+                        dados_snapshot: linha
+                    }));
+
+                    const { error: errItens } = await supabase
+                        .from('relatorios_itens')
+                        .insert(itensParaSalvar);
+
+                    if (errItens) console.error('Erro ao salvar snapshot itens (Variável):', errItens);
+                } else {
+                    console.error('Erro ao criar snapshot header (Variável):', errCriacao);
+                }
+            } catch (snapError) {
+                console.error('Erro crítico no processo de snapshot (Variável):', snapError);
+            }
+
             res.status(201).json({
                 success: true,
                 data,
-                total: data.length
+                total: data.length,
+                message: `${data.length} registro(s) de variável processado(s) com sucesso. Histórico salvo.`
             });
         } catch (error) {
             res.status(500).json({ success: false, error: error.message });

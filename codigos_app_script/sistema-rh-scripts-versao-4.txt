@@ -42,11 +42,8 @@ function onOpen() {
             .addItem('🚀 Enviar Folha para Sistema', 'enviarFolhaParaAPI') // <--- NOVO
             .addSeparator()
             .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
-            .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
             .addItem('📊 Lançar Variável', 'lancarVariavel')
-            .addItem('🚀 Enviar Variável', 'enviarVariavelParaAPI')
-            .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos')
-            .addItem('🚀 Enviar Apontamentos', 'enviarApontamentosParaAPI'))
+            .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos'))
         .addSeparator()
         .addSubMenu(ui.createMenu('📄 Relatórios')
             .addItem('💰 Folha de Pagamento', 'gerarRelatorioFolha')
@@ -186,11 +183,11 @@ function atualizarAbaColaboradores(colaboradores) {
     const rangeTotal = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
     rangeTotal.clearDataValidations();
     rangeTotal.clear();
-
+    
     sheet.clearNotes();
     sheet.setFrozenRows(0);
     if (sheet.getFilter()) {
-        sheet.getFilter().remove();
+      sheet.getFilter().remove();
     }
 
     // 2. LAYOUT (LINHAS 1-5)
@@ -252,16 +249,16 @@ function atualizarAbaColaboradores(colaboradores) {
                 if (c.data_admissao.includes('-')) {
                     const partes = c.data_admissao.split('-'); // [2025, 03, 16]
                     if (partes.length === 3) {
-                        // Cria data localmente sem horário para não sofrer conversão de fuso
-                        const dataObj = new Date(partes[0], partes[1] - 1, partes[2]);
-                        dataAdmissao = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+                       // Cria data localmente sem horário para não sofrer conversão de fuso
+                       const dataObj = new Date(partes[0], partes[1] - 1, partes[2]);
+                       dataAdmissao = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'dd/MM/yyyy');
                     } else {
                         // Tenta parse normal
                         const d = new Date(c.data_admissao);
                         if (!isNaN(d.getTime())) {
-                            dataAdmissao = Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+                           dataAdmissao = Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
                         } else {
-                            dataAdmissao = 'RAW: ' + c.data_admissao;
+                           dataAdmissao = 'RAW: ' + c.data_admissao;
                         }
                     }
                 } else {
@@ -615,7 +612,7 @@ function lancarFolha() {
         SpreadsheetApp.getUi().alert('⚠️ Nenhum colaborador selecionado', 'Selecione os colaboradores na aba Colaboradores.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
-
+    
     const periodo = pedirPeriodo();
     if (!periodo) return;
 
@@ -625,7 +622,7 @@ function lancarFolha() {
 function criarPlanilhaLancamentoFolha(cpfs, periodo) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`; // Ex: Lançamento Folha Jan-2025
+    const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`;
 
     let sheet = ss.getSheetByName(nomeAba);
     if (!sheet) {
@@ -640,83 +637,68 @@ function criarPlanilhaLancamentoFolha(cpfs, periodo) {
         sheet.clear();
     }
 
-    // Buscar nomes dos CPFs (simples lookup na aba Colaboradores para evitar chamada de API lenta)
     const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosColab = sheetColab.getDataRange().getValues(); // Cache local rápido
+    const dadosColab = sheetColab.getDataRange().getValues();
     const mapNomes = {};
-    // Assumindo CPF col 2 (index 1), Nome col 3 (index 2) - Ajustado conforme layout atual (Check, CPF, Nome...)
-    for (let i = 5; i < dadosColab.length; i++) { // Linha 6+
+    for (let i = 5; i < dadosColab.length; i++) {
         const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
         mapNomes[cpfLimpo] = dadosColab[i][2];
     }
 
-    // Cabeçalhos (Mapeados para o Controller)
     const headers = [
-        'CPF', 'Nome', 'Mês', 'Ano',
+        'CPF', 'Nome', 'Mês', 'Ano', 
         'Salário Base', 'Horas Extras', 'Adic. Noturno', 'Insalubridade', 'Periculosidade', 'Comissões', 'Gratificações', 'Outros Prov.',
         'INSS', 'IRRF', 'Vale Transp.', 'Vale Refeição', 'Plano Saúde', 'Outros Desc.',
         'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
     ];
 
-    // Montar linhas
     const linhas = cpfs.map(cpf => {
         const nome = mapNomes[cpf] || 'Não encontrado';
         return [
             formatarCPFParaExibicao(cpf), nome, periodo.mes, periodo.ano,
-            0, 0, 0, 0, 0, 0, 0, 0, // Proventos
-            0, 0, 0, 0, 0, 0, // Descontos
-            'pendente', '', ''
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+            'Pendente', '', ''
         ];
     });
 
-    // Renderizar
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
         .setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
-
+        
     sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
-
-    // Formatação
-    sheet.setColumnWidth(2, 200); // Nome
-    sheet.getRange(2, 5, linhas.length, 14).setNumberFormat('#,##0.00'); // Moeda
-
-    // Travar Colunas CPF/Nome
+    sheet.setColumnWidth(2, 200);
+    sheet.getRange(2, 5, linhas.length, 14).setNumberFormat('#,##0.00');
     sheet.setFrozenColumns(2);
-
     ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Planilha Criada!',
-        `Preencha os valores na aba "${nomeAba}".\n\nQuando terminar, vá no menu "Lançamentos" > "Enviar Folha para Sistema".`,
+    
+    SpreadsheetApp.getUi().alert('✅ Planilha Criada!', 
+        `Preencha os valores na aba "${nomeAba}".\n\nQuando terminar, vá no menu "Lançamentos" > "Enviar Folha para Sistema".`, 
         SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
 function enviarFolhaParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
-
+    
     if (!nomeAba.includes('Lançamento Folha')) {
         SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha ..." para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
     const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar Envio', 'Deseja enviar os dados desta planilha para o sistema? Isso atualizará ou criará os registros de folha.', ui.ButtonSet.YES_NO);
+    const resp = ui.alert('Confirmar Envio', 'Deseja enviar os dados desta planilha para o sistema?', ui.ButtonSet.YES_NO);
     if (resp == ui.Button.NO) return;
 
     const data = sheet.getDataRange().getValues();
-    // Headers na linha 1. Dados começam na linha 2.
-    if (data.length < 2) {
-        ui.alert('⚠️ Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK);
-        return;
-    }
+    if (data.length < 2) { ui.alert('⚠️ Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK); return; }
 
     const folhas = [];
-    // Mapeamento baseado na ordem das colunas em lancarFolha
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        const cpfRaw = String(row[0]);
-        if (!cpfRaw) continue;
-
+        if (!row[0]) continue;
+        
         folhas.push({
-            cpf: cpfRaw.replace(/\D/g, ''),
+            cpf: String(row[0]).replace(/\D/g, ''),
             mes_referencia: row[2],
             ano_referencia: row[3],
             salario_base: row[4],
@@ -733,7 +715,7 @@ function enviarFolhaParaAPI() {
             vale_refeicao: row[15],
             plano_saude: row[16],
             outros_descontos: row[17],
-            status_pagamento: row[18] ? String(row[18]).toLowerCase() : 'pendente',
+            status_pagamento: row[18],
             data_pagamento: row[19] ? new Date(row[19]).toISOString().split('T')[0] : null,
             observacoes: row[20]
         });
@@ -742,651 +724,32 @@ function enviarFolhaParaAPI() {
     try {
         const url = CONFIG.API_URL + '/folha/batch';
         const options = {
-            'method': 'post',
-            'contentType': 'application/json',
-            'payload': JSON.stringify({ folhas: folhas }),
-            'muteHttpExceptions': true
+            'method': 'post', 'contentType': 'application/json',
+            'payload': JSON.stringify({ folhas: folhas }), 'muteHttpExceptions': true
         };
-
         const response = UrlFetchApp.fetch(url, options);
         const resultado = JSON.parse(response.getContentText());
-
+        
         if (resultado.success) {
-            ui.alert('✅ Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
+            ui.alert('✅ Sucesso!', resultado.message || 'Dados enviados!', ui.ButtonSet.OK);
         } else {
             throw new Error(resultado.error);
         }
     } catch (erro) {
-        ui.alert('❌ Erro', 'Erro ao enviar folhas: ' + erro.message, ui.ButtonSet.OK);
-    }
-}
-
-// =====================================================
-// UTILITÁRIOS DE API
-// =====================================================
-
-function buscarDadosColaboradores(cpfs) {
-    if (!cpfs || cpfs.length === 0) return [];
-
-    try {
-        const url = CONFIG.API_URL + '/colaboradores/buscar';
-        const options = {
-            method: 'post',
-            contentType: 'application/json',
-            payload: JSON.stringify({ filtros: { status: 'ativo' } }),
-            muteHttpExceptions: true
-        };
-        const response = UrlFetchApp.fetch(url, options);
-        const res = JSON.parse(response.getContentText());
-
-        if (res.success) {
-            const cpfsLimpos = cpfs.map(c => String(c).replace(/\D/g, ''));
-            return res.colaboradores.filter(c => cpfsLimpos.includes(String(c.cpf).replace(/\D/g, '')));
-        } else {
-            return [];
-        }
-    } catch (e) {
-        Logger.log('Erro ao buscar dados colaboradores: ' + e);
-        return [];
+        ui.alert('❌ Erro', 'Erro no envio: ' + erro.message, ui.ButtonSet.OK);
     }
 }
 
 function lancarBeneficios() {
-    const cpfs = obterCPFsSelecionados();
-    if (cpfs.length === 0) {
-        SpreadsheetApp.getUi().alert('⚠️ Nenhum colaborador selecionado', 'Selecione os colaboradores na aba Colaboradores.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    const periodo = pedirPeriodo();
-    if (!periodo) return;
-
-    // Buscar dados completos (incluindo Cidade) da API
-    const dadosCompletos = buscarDadosColaboradores(cpfs);
-
-    criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos);
+    mostrarFormularioLancamento('beneficios', 'Benefícios Caju');
 }
-
-function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const nomeAba = `Lançamento Benefícios ${meses[periodo.mes - 1]}-${periodo.ano}`;
-
-    let sheet = ss.getSheetByName(nomeAba);
-    if (!sheet) {
-        sheet = ss.insertSheet(nomeAba);
-    } else {
-        const ui = SpreadsheetApp.getUi();
-        const resp = ui.alert('Aba já existe', `A aba "${nomeAba}" já existe. Deseja limpá-la e recriar?`, ui.ButtonSet.YES_NO);
-        if (resp == ui.Button.NO) {
-            ss.setActiveSheet(sheet);
-            return;
-        }
-        sheet.clear();
-    }
-
-    // --- 1. CONFIGURAÇÃO VISUAL (Cores do Template) ---
-    const COR_AMARELO_TITULO = '#f1c232';
-    const COR_VERDE_FIXO = '#d9ead3';
-    const COR_HEADER_TABELA = '#f1c232';
-
-    // --- 2. CABEÇALHO DE PARÂMETROS (Linhas 2-10) ---
-
-    // Transporte (B2:C6)
-    sheet.getRange('B2:C2').merge().setValue('Transporte')
-        .setBackground(COR_AMARELO_TITULO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, true);
-    sheet.getRange('B3').setValue('VALOR DIA').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C3').setValue(14.35).setNumberFormat('R$ #,##0.00').setBorder(true, true, true, true, true, true);
-    sheet.getRange('B4').setValue('DIAS CORRIDOS NO MÊS').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C4').setValue(20).setBorder(true, true, true, true, true, true);
-    sheet.getRange('B5').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C5').setFormula('=C3*C4').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('B6').setValue('VALOR FIXO').setFontWeight('bold').setBackground(COR_VERDE_FIXO).setBorder(true, true, true, true, true, true);
-    sheet.getRange('C6').setValue(330.00).setNumberFormat('R$ #,##0.00').setBackground(COR_VERDE_FIXO).setBorder(true, true, true, true, true, true);
-
-    // Alimentação (B7:C10)
-    sheet.getRange('B7:C7').merge().setValue('Alimentação')
-        .setBackground(COR_AMARELO_TITULO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, true);
-    sheet.getRange('B8').setValue('VALOR DIA').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C8').setValue(35.00).setNumberFormat('R$ #,##0.00').setBorder(true, true, true, true, true, true);
-    sheet.getRange('B9').setValue('DIAS ÚTEIS NO MÊS').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C9').setValue(20).setBorder(true, true, true, true, true, true);
-    sheet.getRange('B10').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-    sheet.getRange('C10').setFormula('=C8*C9').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true, true, true, true, true, true);
-
-    // Totais (Row 9-11)
-    sheet.getRange('E9:F9').merge().setValue('Total Beneficios').setHorizontalAlignment('center');
-    // E10:F10 = Grand Total (Sum of Subtotals below)
-    sheet.getRange('E10:F10').merge().setFormula('=E11+F11').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
-
-    // Subtotals per column (E11, F11)
-    sheet.getRange('E11').setFormula('=SUM(E13:E)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
-    sheet.getRange('F11').setFormula('=SUM(F13:F)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
-
-    // Header Names just for labeling totals (Row 11 is values, maybe put "Total" text in Row 11 of Cols C/D? Screenshot has values in E11/F11 directly).
-    sheet.getRange('E12').setValue('Alimentação').setFontWeight('bold').setBackground(COR_AMARELO_TITULO).setBorder(true, true, true, true, true, true).setHorizontalAlignment('center');
-    sheet.getRange('F12').setValue('Transporte').setFontWeight('bold').setBackground(COR_AMARELO_TITULO).setBorder(true, true, true, true, true, true).setHorizontalAlignment('center');
-
-    // --- 3. TABELA DE DADOS (Começa Row 12 header, 13 dados) ---
-    const headers = ['#', 'NOME', 'Cidade', 'FÉRIAS', 'Alimentação', 'Transporte'];
-    const startRow = 12;
-
-    sheet.getRange(startRow, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold')
-        .setBorder(true, true, true, true, true, true)
-        .setHorizontalAlignment('center');
-
-    // Colors
-    sheet.getRange(startRow, 4, 1, 3).setBackground(COR_HEADER_TABELA); // D, E, F Amarelo
-    sheet.getRange(startRow, 1, 1, 3).setBackground('#f3f3f3'); // A, B, C Cinza
-
-    // Overwrite Alimentação/Transporte header text color if needed (Black default)
-
-    // Map Dados de Nome e Cidade
-    const mapDados = {};
-
-    // Prioridade 1: Dados da API (tem cidade)
-    if (dadosCompletos && dadosCompletos.length > 0) {
-        dadosCompletos.forEach(c => {
-            const cpfLimpo = String(c.cpf).replace(/\D/g, '');
-            mapDados[cpfLimpo] = {
-                nome: c.nome_completo,
-                cidade: c.cidade || c.local_trabalho || '-'
-            };
-        });
-    }
-
-    // Prioridade 2: Dados da Aba (Fallback se API falhar)
-    const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosColab = sheetColab.getDataRange().getValues();
-    for (let i = 5; i < dadosColab.length; i++) {
-        const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API
-            mapDados[cpfLimpo] = {
-                nome: dadosColab[i][2],
-                cidade: dadosColab[i][4] || '-'
-            };
-        }
-    }
-
-    // Gerar Linhas
-    const linhas = cpfs.map((cpf, index) => {
-        const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '' };
-        const seq = String(index + 1).padStart(4, '0');
-
-        return [
-            seq,
-            d.nome,
-            d.cidade,
-            '', // Férias
-            sheet.getRange('C10').getValue(), // Alimentação (Valor Total)
-            sheet.getRange('C6').getValue()   // Transporte (Valor Fixo)
-        ];
-    });
-
-    if (linhas.length > 0) {
-        sheet.getRange(startRow + 1, 1, linhas.length, headers.length).setValues(linhas);
-        sheet.getRange(startRow + 1, 5, linhas.length, 2).setNumberFormat('R$ #,##0.00'); // Cols E,F
-        sheet.getRange(startRow + 1, 1, linhas.length, 1).setHorizontalAlignment('center');
-        sheet.getRange(startRow + 1, 3, linhas.length, 1).setHorizontalAlignment('center');
-    }
-
-    // Column Widths
-    sheet.setColumnWidth(1, 50);  // #
-    sheet.setColumnWidth(2, 300); // Nome
-    sheet.setColumnWidth(3, 100); // Cidade
-    sheet.setColumnWidth(4, 150); // Férias
-    sheet.setColumnWidth(5, 120); // Alim
-    sheet.setColumnWidth(6, 120); // Transp
-
-    ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Planilha Benefícios Ajustada!',
-        `Layout corrigido conforme solicitação.\n\nPreencha "Férias" se necessário.\n\nQuando terminar: Lançamentos > Enviar Benefícios.`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function enviarBeneficiosParaAPI() {
-    const sheet = SpreadsheetApp.getActiveSheet();
-    const nomeAba = sheet.getName();
-
-    if (!nomeAba.includes('Lançamento Benefícios')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Benefícios ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar', 'Enviar benefícios para o sistema?', ui.ButtonSet.YES_NO);
-    if (resp == ui.Button.NO) return;
-
-    const startRow = 13;
-    const lastRow = sheet.getLastRow();
-    if (lastRow < startRow) return;
-
-    // Lendo colunas A até F (1 a 6)
-    const data = sheet.getRange(startRow, 1, lastRow - startRow + 1, 6).getValues();
-    const beneficios = [];
-
-    // Map Name -> CPF (Recuperação inversa, já que CPF não está na linha visualmente)
-    const sheetColab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosColab = sheetColab.getDataRange().getValues();
-    const mapNomeParaCPF = {};
-    for (let i = 5; i < dadosColab.length; i++) {
-        const nome = String(dadosColab[i][2]).trim().toUpperCase();
-        const cpf = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapNomeParaCPF[nome] = cpf;
-    }
-
-    const match = nomeAba.match(/([a-zA-Z]{3})-(\d{4})/);
-    let mes = 0, ano = 0;
-    if (match) {
-        const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
-        mes = meses[match[1]];
-        ano = parseInt(match[2]);
-    }
-
-    for (let i = 0; i < data.length; i++) {
-        const row = data[i];
-        const nome = String(row[1]).trim().toUpperCase();
-        if (!nome) continue;
-
-        const cpf = mapNomeParaCPF[nome];
-        if (!cpf) continue;
-
-        // Col 4 (Index 4) = Alimentação (E)
-        if (row[4] && typeof row[4] === 'number' && row[4] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_alimentacao', valor: row[4], quantidade: 1, valor_total: row[4], status: 'ativo' });
-        }
-
-        // Col 5 (Index 5) = Transporte (F)
-        if (row[5] && typeof row[5] === 'number' && row[5] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_transporte', valor: row[5], quantidade: 1, valor_total: row[5], status: 'ativo' });
-        }
-    }
-
-    if (beneficios.length === 0) {
-        ui.alert('⚠️ Nenhum benefício para enviar', 'Verifique se há valores preenchidos em Alimentação ou Transporte.', ui.ButtonSet.OK);
-        return;
-    }
-
-    try {
-        const url = CONFIG.API_URL + '/beneficios/batch';
-        const options = {
-            'method': 'post', 'contentType': 'application/json',
-            'payload': JSON.stringify({ beneficios: beneficios }), 'muteHttpExceptions': true
-        };
-        const response = UrlFetchApp.fetch(url, options);
-        const res = JSON.parse(response.getContentText());
-
-        if (res.success) {
-            ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-        } else {
-            throw new Error(res.error);
-        }
-    } catch (e) {
-        ui.alert('❌ Erro', e.message, ui.ButtonSet.OK);
-    }
-}
-
-// =====================================================
-// LANÇAMENTO DE VARIÁVEL (COMISSÕES/BÔNUS)
-// =====================================================
 
 function lancarVariavel() {
-    const cpfs = obterCPFsSelecionados();
-    if (cpfs.length === 0) {
-        SpreadsheetApp.getUi().alert('⚠️ Nenhum colaborador selecionado', 'Selecione os colaboradores na aba Colaboradores.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    const periodo = pedirPeriodo();
-    if (!periodo) return;
-
-    criarPlanilhaVariavel(cpfs, periodo);
-}
-
-function criarPlanilhaVariavel(cpfs, periodo) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const nomeAba = `Lançamento Variável ${meses[periodo.mes - 1]}-${periodo.ano}`;
-
-    let sheet = ss.getSheetByName(nomeAba);
-    if (!sheet) {
-        sheet = ss.insertSheet(nomeAba);
-    } else {
-        const ui = SpreadsheetApp.getUi();
-        const resp = ui.alert('Aba já existe', `A aba "${nomeAba}" já existe. Deseja limpá-la e recriar?`, ui.ButtonSet.YES_NO);
-        if (resp == ui.Button.NO) {
-            ss.setActiveSheet(sheet);
-            return;
-        }
-        sheet.clear();
-    }
-
-    // Lookup de nomes e cargos
-    const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosColab = sheetColab.getDataRange().getValues();
-    const mapDados = {};
-    for (let i = 5; i < dadosColab.length; i++) {
-        const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapDados[cpfLimpo] = {
-            nome: dadosColab[i][2],
-            cargo: dadosColab[i][3]
-        };
-    }
-
-    const headers = [
-        'CPF', 'Nome', 'Cargo',
-        'Tipo Variável', 'Valor (R$)', 'Data Referência', 'Observação'
-    ];
-
-    // Gerar linhas
-    const dataPadrao = Utilities.formatDate(new Date(periodo.ano, periodo.mes - 1, 1), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-
-    const linhas = cpfs.map(cpf => {
-        const d = mapDados[cpf] || { nome: 'Não encontrado', cargo: '-' };
-        return [
-            formatarCPFParaExibicao(cpf),
-            d.nome,
-            d.cargo,
-            'comissao', // Padrão
-            0.00,
-            dataPadrao,
-            ''
-        ];
-    });
-
-    // Renderizar Header
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold')
-        .setBackground('#6aa84f') // Verde
-        .setFontColor('white')
-        .setHorizontalAlignment('center');
-
-    // Renderizar Dados
-    if (linhas.length > 0) {
-        const range = sheet.getRange(2, 1, linhas.length, headers.length);
-        range.setValues(linhas);
-
-        // Formatar Moeda (Valor)
-        sheet.getRange(2, 5, linhas.length, 1).setNumberFormat('R$ #,##0.00');
-
-        // Validação Tipo Variável
-        const tipos = ['comissao', 'bonus', 'plr', 'gratificacao', 'premio', 'dsr_variavel'];
-        const rule = SpreadsheetApp.newDataValidation().requireValueInList(tipos).build();
-        sheet.getRange(2, 4, linhas.length, 1).setDataValidation(rule);
-
-        // Centralizar
-        sheet.getRange(2, 1, linhas.length, 1).setHorizontalAlignment('center'); // CPF
-        sheet.getRange(2, 6, linhas.length, 1).setHorizontalAlignment('center'); // Data
-    }
-
-    // Larguras
-    sheet.setColumnWidth(1, 130); // CPF
-    sheet.setColumnWidth(2, 250); // Nome
-    sheet.setColumnWidth(3, 150); // Cargo
-    sheet.setColumnWidth(4, 120); // Tipo
-    sheet.setColumnWidth(5, 100); // Valor
-    sheet.setColumnWidth(7, 200); // Obs
-
-    sheet.setFrozenRows(1);
-
-    ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Planilha Variável Criada!',
-        `Lance as comissões/bônus na aba "${nomeAba}".\n\nQuando terminar: Lançamentos > Enviar Variável.`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function enviarVariavelParaAPI() {
-    const sheet = SpreadsheetApp.getActiveSheet();
-    const nomeAba = sheet.getName();
-
-    if (!nomeAba.includes('Lançamento Variável')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Variável ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    // Extrair Período do nome da aba (Ex: ... Jan-2025)
-    // Isso é importante para preencher mes_referencia na API
-    const partesNome = nomeAba.split(' ');
-    const periodoStr = partesNome[partsNome.length - 1]; // "Jan-2025"
-    let mes = 0;
-    let ano = 0;
-    const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
-
-    if (periodoStr && periodoStr.includes('-')) {
-        const [mStr, aStr] = periodoStr.split('-');
-        mes = meses[mStr] || 0;
-        ano = parseInt(aStr) || 0;
-    } else {
-        // Fallback: Pede pro usuário se falhar parse
-        const p = pedirPeriodo();
-        if (p) { mes = p.mes; ano = p.ano; }
-        else return;
-    }
-
-    const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar', `Enviar remuneração variável para ${mes}/${ano}?`, ui.ButtonSet.YES_NO);
-    if (resp == ui.Button.NO) return;
-
-    const data = sheet.getDataRange().getValues();
-    // Header na linha 1, dados na 2
-    if (data.length < 2) return;
-
-    const variaveis = [];
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row[0]) continue; // Sem CPF
-
-        const cpf = String(row[0]).replace(/\D/g, '');
-        const tipo = row[3];
-        const valor = parseFloat(row[4]);
-        const dataRef = row[5];
-        const obs = row[6];
-
-        if (!valor || valor <= 0) continue; // Pula zerados
-
-        // Tratamento da data
-        let dataIso = '';
-        if (dataRef instanceof Date) {
-            dataIso = Utilities.formatDate(dataRef, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        } else {
-            // Tentar criar data
-            dataIso = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
-
-        variaveis.push({
-            cpf: cpf,
-            mes_referencia: mes,
-            ano_referencia: ano,
-            tipo_variavel: tipo,
-            valor: valor,
-            data_referencia: dataIso,
-            observacoes: obs,
-            status: 'pendente' // Default
-        });
-    }
-
-    if (variaveis.length === 0) {
-        ui.alert('⚠️ Nada a enviar', 'Nenhum valor > 0 encontrado.', ui.ButtonSet.OK);
-        return;
-    }
-
-    try {
-        const url = CONFIG.API_URL + '/variavel/batch'; // <--- TERA QUE CRIAR ROTA
-        const options = {
-            'method': 'post', 'contentType': 'application/json',
-            'payload': JSON.stringify({ variaveis: variaveis }), 'muteHttpExceptions': true
-        };
-        const response = UrlFetchApp.fetch(url, options);
-        const res = JSON.parse(response.getContentText());
-
-        if (res.success) {
-            ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-        } else {
-            throw new Error(res.error);
-        }
-    } catch (e) {
-        ui.alert('❌ Erro', e.message, ui.ButtonSet.OK);
-    }
+    mostrarFormularioLancamento('variavel', 'Variável/Comissão');
 }
 
 function lancarApontamentos() {
-    const cpfs = obterCPFsSelecionados();
-    if (cpfs.length === 0) {
-        SpreadsheetApp.getUi().alert('⚠️ Nenhum colaborador selecionado', 'Selecione os colaboradores na aba Colaboradores.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    const periodo = pedirPeriodo();
-    if (!periodo) return;
-
-    criarPlanilhaLancamentoApontamentos(cpfs, periodo);
-}
-
-function criarPlanilhaLancamentoApontamentos(cpfs, periodo) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const nomeAba = `Lançamento Apontamentos ${meses[periodo.mes - 1]}-${periodo.ano}`;
-
-    let sheet = ss.getSheetByName(nomeAba);
-    if (!sheet) {
-        sheet = ss.insertSheet(nomeAba);
-    } else {
-        const ui = SpreadsheetApp.getUi();
-        const resp = ui.alert('Aba já existe', `A aba "${nomeAba}" já existe. Deseja limpá-la e recriar?`, ui.ButtonSet.YES_NO);
-        if (resp == ui.Button.NO) {
-            ss.setActiveSheet(sheet);
-            return;
-        }
-        sheet.clear();
-    }
-
-    // Lookup de nomes
-    const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosColab = sheetColab.getDataRange().getValues();
-    const mapNomes = {};
-    for (let i = 5; i < dadosColab.length; i++) {
-        const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapNomes[cpfLimpo] = dadosColab[i][2];
-    }
-
-    const headers = [
-        'CPF', 'Nome', 'Data', 'Tipo (presenca/falta/etc)',
-        'Hora Entrada', 'Hora Saída', 'Inicio Intervalo', 'Fim Intervalo',
-        'Horas Trab.', 'Horas Extras', 'Horas Noturnas',
-        'Falta (S/N)', 'Atraso (min)', 'Saída Anec. (min)',
-        'Justificativa', 'Atestado (S/N)', 'Status (pendente)', 'Obs'
-    ];
-
-    // Gerar linhas - Para apontamentos, normalmente é dia a dia, mas aqui vamos gerar UMA linha por CPF para o usuário duplicar se necessário ou preencher datas?
-    // Decisão: Gerar uma linha com a data atual (ou dia 1 do mês) como sugestão.
-    const dataPadrao = Utilities.formatDate(new Date(periodo.ano, periodo.mes - 1, 1), Session.getScriptTimeZone(), 'yyyy-MM-dd');
-
-    const linhas = cpfs.map(cpf => {
-        const nome = mapNomes[cpf] || 'Não encontrado';
-        return [
-            formatarCPFParaExibicao(cpf), nome, dataPadrao, 'presenca',
-            '08:00', '17:00', '12:00', '13:00', // Horários padrão
-            8, 0, 0, // Horas
-            'Não', 0, 0, // Ocorrências
-            '', 'Não', 'pendente', ''
-        ];
-    });
-
-    // Renderizar
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold').setBackground('#fbbc04').setFontColor('black'); // Cor diferente para diferenciar de Folha
-
-    sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
-
-    // Validação de Dados para Tipo
-    const tipos = ['presenca', 'falta', 'falta_justificada', 'atestado', 'ferias', 'folga', 'licenca', 'home_office', 'hora_extra', 'banco_horas'];
-    const rule = SpreadsheetApp.newDataValidation().requireValueInList(tipos).build();
-    sheet.getRange(2, 4, linhas.length, 1).setDataValidation(rule);
-
-    // Formatação
-    sheet.setColumnWidth(2, 200);
-    sheet.setFrozenColumns(2);
-
-    ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Planilha de Apontamentos Criada!',
-        `Preencha o DIÁRIO na aba "${nomeAba}".\nOBS: Você pode copiar e colar as linhas para lançar múltiplos dias para o mesmo CPF.\n\nQuando terminar: Lançamentos > Enviar Apontamentos.`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function enviarApontamentosParaAPI() {
-    const sheet = SpreadsheetApp.getActiveSheet();
-    const nomeAba = sheet.getName();
-
-    if (!nomeAba.includes('Lançamento Apontamentos')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Apontamentos ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
-        return;
-    }
-
-    const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar', 'Enviar apontamentos para o sistema?', ui.ButtonSet.YES_NO);
-    if (resp == ui.Button.NO) return;
-
-    const data = sheet.getDataRange().getValues();
-    if (data.length < 2) return;
-
-    const apontamentos = [];
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row[0]) continue;
-
-        // Tratamento de Data
-        let dataApont = row[2];
-        if (dataApont instanceof Date) {
-            dataApont = Utilities.formatDate(dataApont, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
-
-        apontamentos.push({
-            cpf: String(row[0]).replace(/\D/g, ''),
-            data_apontamento: dataApont,
-            tipo_apontamento: row[3],
-            hora_entrada: row[4] ? formatarHora(row[4]) : null,
-            hora_saida: row[5] ? formatarHora(row[5]) : null,
-            hora_inicio_intervalo: row[6] ? formatarHora(row[6]) : null,
-            hora_fim_intervalo: row[7] ? formatarHora(row[7]) : null,
-            horas_trabalhadas: row[8],
-            horas_extras: row[9],
-            horas_noturnas: row[10],
-            falta: row[11] === 'Sim',
-            atraso_minutos: row[12],
-            saida_antecipada_minutos: row[13],
-            justificativa: row[14],
-            atestado: row[15] === 'Sim',
-            status: row[16],
-            observacoes: row[17]
-        });
-    }
-
-    try {
-        const url = CONFIG.API_URL + '/apontamentos/batch';
-        const options = {
-            'method': 'post', 'contentType': 'application/json',
-            'payload': JSON.stringify({ apontamentos: apontamentos }), 'muteHttpExceptions': true
-        };
-        const response = UrlFetchApp.fetch(url, options);
-        const res = JSON.parse(response.getContentText());
-
-        if (res.success) {
-            ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-        } else {
-            throw new Error(res.error);
-        }
-    } catch (e) {
-        ui.alert('❌ Erro', e.message, ui.ButtonSet.OK);
-    }
-}
-
-function formatarHora(val) {
-    // Se vier Date do sheets (ex: 1899-12-30T08:00:00)
-    if (val instanceof Date) {
-        return Utilities.formatDate(val, Session.getScriptTimeZone(), 'HH:mm:ss');
-    }
-    return val;
+    mostrarFormularioLancamento('apontamentos', 'Apontamentos');
 }
 
 function mostrarFormularioLancamento(tipo, nome) {

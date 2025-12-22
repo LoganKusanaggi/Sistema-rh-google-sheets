@@ -164,7 +164,6 @@ function buscarColaboradorModal() {
     SpreadsheetApp.getUi().showModalDialog(html, 'Buscar Colaboradores');
 }
 
-// ===== FUNÇÃO CORRIGIDA - SUBSTITUIR A PARTIR DA LINHA ~130 =====
 function atualizarAbaColaboradores(colaboradores) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
@@ -182,11 +181,11 @@ function atualizarAbaColaboradores(colaboradores) {
     const rangeTotal = sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns());
     rangeTotal.clearDataValidations();
     rangeTotal.clear();
-
+    
     sheet.clearNotes();
     sheet.setFrozenRows(0);
     if (sheet.getFilter()) {
-        sheet.getFilter().remove();
+      sheet.getFilter().remove();
     }
 
     // 2. LAYOUT (LINHAS 1-5)
@@ -241,59 +240,28 @@ function atualizarAbaColaboradores(colaboradores) {
         Logger.log('DEBUG - Primeiro colaborador: ' + JSON.stringify(colaboradores[0]));
 
         const dados = colaboradores.map(c => {
-            // ===== CORREÇÃO: FORMATAÇÃO DE DATA ROBUSTA =====
+            // Tratamento seguro de data para evitar problemas de fuso horário
             let dataAdmissao = '-';
             if (c.data_admissao) {
-                try {
-                    let dataObj;
-                    const valorData = c.data_admissao;
-
-                    Logger.log(`Processando data: ${valorData} (tipo: ${typeof valorData})`);
-
-                    // CASO 1: String no formato ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS)
-                    if (typeof valorData === 'string' && valorData.includes('-')) {
-                        const dataLimpa = valorData.split('T')[0]; // Remove horário se existir
-                        const [ano, mes, dia] = dataLimpa.split('-');
-
-                        if (ano && mes && dia) {
-                            dataObj = new Date(parseInt(ano), parseInt(mes) - 1, parseInt(dia));
-                        }
-                    }
-                    // CASO 2: Timestamp (número)
-                    else if (typeof valorData === 'number') {
-                        dataObj = new Date(valorData);
-                    }
-                    // CASO 3: Já é um objeto Date
-                    else if (valorData instanceof Date) {
-                        dataObj = valorData;
-                    }
-                    // CASO 4: String em outro formato (DD/MM/YYYY)
-                    else if (typeof valorData === 'string' && valorData.includes('/')) {
-                        const [dia, mes, ano] = valorData.split('/');
-                        if (dia && mes && ano) {
-                            dataObj = new Date(parseInt(ano), parseInt(mes) - 1, parseInt(dia));
-                        }
-                    }
-
-                    // Validar e formatar
-                    if (dataObj && !isNaN(dataObj.getTime())) {
-                        dataAdmissao = Utilities.formatDate(
-                            dataObj,
-                            Session.getScriptTimeZone(),
-                            'dd/MM/yyyy'
-                        );
-                        Logger.log(`✅ Data formatada: ${dataAdmissao}`);
+                // Se for YYYY-MM-DD
+                if (c.data_admissao.includes('-')) {
+                    const partes = c.data_admissao.split('-'); // [2025, 03, 16]
+                    if (partes.length === 3) {
+                       // Cria data localmente sem horário para não sofrer conversão de fuso
+                       const dataObj = new Date(partes[0], partes[1] - 1, partes[2]);
+                       dataAdmissao = Utilities.formatDate(dataObj, Session.getScriptTimeZone(), 'dd/MM/yyyy');
                     } else {
-                        Logger.log(`⚠️ Data inválida após parse: ${dataObj}`);
-                        dataAdmissao = '❌ Inválida';
+                        // Tenta parse normal
+                        const d = new Date(c.data_admissao);
+                        if (!isNaN(d.getTime())) {
+                           dataAdmissao = Utilities.formatDate(d, Session.getScriptTimeZone(), 'dd/MM/yyyy');
+                        } else {
+                           dataAdmissao = 'RAW: ' + c.data_admissao;
+                        }
                     }
-
-                } catch (erro) {
-                    Logger.log(`❌ Erro ao processar data: ${erro} | Valor original: ${c.data_admissao}`);
-                    dataAdmissao = '❌ Erro';
+                } else {
+                    dataAdmissao = 'RAW: ' + c.data_admissao;
                 }
-            } else {
-                Logger.log('⚠️ Campo data_admissao ausente ou vazio');
             }
 
             return [
@@ -957,6 +925,7 @@ function editarSelecionados() {
         const resultado = JSON.parse(response.getContentText());
 
         if (resultado.success) {
+            // CORREÇÃO: Usar 'resultado.data' em vez de 'resultado.colaborador'
             mostrarModalEdicao(resultado.data);
         } else {
             throw new Error(resultado.error);

@@ -104,26 +104,12 @@ function buscarColaboradorModal() {
     
     <script>
       function buscar() {
-        const termo = document.getElementById('termo_busca').value;
-        const status = document.getElementById('status').value;
-        const departamento = document.getElementById('departamento').value;
-        const cargo = document.getElementById('cargo').value;
-
         const filtros = {
-          status: status,
-          departamento: departamento,
-          cargo: cargo
+          termo_busca: document.getElementById('termo_busca').value,
+          status: document.getElementById('status').value,
+          departamento: document.getElementById('departamento').value,
+          cargo: document.getElementById('cargo').value
         };
-
-        // Lógica simples para decidir se é CPF ou Nome
-        if (termo) {
-          const soDigitos = termo.replace(/\D/g, '');
-          if (soDigitos.length === 11) {
-             filtros.cpf = soDigitos; 
-          } else {
-             filtros.nome = termo;
-          }
-        }
         
         google.script.run
           .withSuccessHandler(exibirResultados)
@@ -164,7 +150,33 @@ function buscarColaboradorModal() {
     SpreadsheetApp.getUi().showModalDialog(html, 'Buscar Colaboradores');
 }
 
-// ===== FUNÇÃO CORRIGIDA - SUBSTITUIR A PARTIR DA LINHA ~130 =====
+function buscarColaboradoresAPI(filtros) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/buscar';
+        const options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ filtros }),
+            muteHttpExceptions: true
+        };
+
+        const response = UrlFetchApp.fetch(url, options);
+        const resultado = JSON.parse(response.getContentText());
+
+        if (resultado.success) {
+            // Atualizar aba Colaboradores com resultados
+            atualizarAbaColaboradores(resultado.colaboradores);
+            return resultado.colaboradores;
+        } else {
+            throw new Error(resultado.error);
+        }
+    } catch (erro) {
+        Logger.log('Erro ao buscar:', erro);
+        throw erro;
+    }
+}
+
+// ===== FUNÇÃO ATUALIZADA (UX MELHORADA - REDIRECIONAMENTO E LAYOUT FINAL) =====
 function atualizarAbaColaboradores(colaboradores) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
@@ -177,15 +189,15 @@ function atualizarAbaColaboradores(colaboradores) {
     // UX: Redirecionar imediatamente
     ss.setActiveSheet(sheet);
 
-    // 1. Limpar Tudo
+    // 1. Limpar Tudo para garantir layout novo
     sheet.clear();
 
-    // 2. LAYOUT (LINHAS 1-5)
+    // 2. CONFIGURAR LAYOUT RICO (LINHAS 1-5)
     const agora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss');
 
-    // LINHA 1: Título
+    // LINHA 1: Título (Usando Unicode para evitar erro de codificação)
     sheet.getRange('A1:G1').merge();
-    sheet.getRange('A1').setValue('🔍 SISTEMA RH - BUSCA DE COLABORADORES')
+    sheet.getRange('A1').setValue('\uD83D\uDD0D SISTEMA RH - BUSCA DE COLABORADORES')
         .setFontSize(14).setFontWeight('bold')
         .setHorizontalAlignment('center').setVerticalAlignment('middle')
         .setBackground('#1a73e8').setFontColor('#ffffff');
@@ -198,164 +210,62 @@ function atualizarAbaColaboradores(colaboradores) {
     // LINHA 3: Resumo
     sheet.getRange('A3:G3').merge();
     const resumo = colaboradores.length > 0
-        ? `✅ Total de registros encontrados: ${colaboradores.length}`
-        : `⚠️ Nenhum registro encontrado para os filtros informados.`;
+        ? `\u2705 Total de registros encontrados: ${colaboradores.length}`
+        : `\u26A0\uFE0F Nenhum registro encontrado para os filtros informados.`;
     sheet.getRange('A3').setValue(resumo)
         .setFontWeight('bold').setBackground('#f3f3f3').setVerticalAlignment('middle');
 
-    // LINHA 4: Separador
-    sheet.setRowHeight(4, 5);
+    // LINHA 4: Separador (Visual)
+    sheet.setRowHeight(4, 5); // Linha fina
 
-    // LINHA 5: Cabeçalhos
-    const headers = [['☑️', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Status', 'Data Admissão']];
+    // LINHA 5: Cabeçalhos da Tabela
+    const headers = [['\u2611\uFE0F', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Status', 'Data Admissão']];
     sheet.getRange(5, 1, 1, 7).setValues(headers);
     sheet.getRange(5, 1, 1, 7)
         .setFontWeight('bold')
-        .setBackground('#e8f0fe')
+        .setBackground('#e8f0fe') // Azul claro diferente do título
         .setFontColor('#000000')
         .setBorder(true, true, true, true, true, true);
 
-    // Larguras das colunas
+    // Configurar colunas (Larguras)
     sheet.setColumnWidth(1, 40);  // Check
     sheet.setColumnWidth(2, 120); // CPF
     sheet.setColumnWidth(3, 250); // Nome
     sheet.setColumnWidth(4, 150); // Cargo
     sheet.setColumnWidth(5, 120); // Depto
     sheet.setColumnWidth(6, 100); // Status
-    sheet.setColumnWidth(7, 110); // Data
+    sheet.setColumnWidth(7, 100); // Data
 
+    // Congelar cabeçalho
     sheet.setFrozenRows(5);
 
-    // 3. INSERIR DADOS (LINHA 6+)
+    // 3. INSERIR DADOS (A PARTIR DA LINHA 6)
     if (colaboradores.length > 0) {
-        // DEBUG: Log do primeiro colaborador
-        Logger.log('DEBUG - Primeiro colaborador: ' + JSON.stringify(colaboradores[0]));
-
-        const dados = colaboradores.map(c => {
-            // ===== CORREÇÃO: FORMATAÇÃO DE DATA ROBUSTA =====
-            let dataAdmissao = '-';
-            if (c.data_admissao) {
-                try {
-                    let dataObj;
-                    const valorData = c.data_admissao;
-
-                    Logger.log(`Processando data: ${valorData} (tipo: ${typeof valorData})`);
-
-                    // CASO 1: String no formato ISO (YYYY-MM-DD ou YYYY-MM-DDTHH:MM:SS)
-                    if (typeof valorData === 'string' && valorData.includes('-')) {
-                        const dataLimpa = valorData.split('T')[0]; // Remove horário se existir
-                        const [ano, mes, dia] = dataLimpa.split('-');
-
-                        if (ano && mes && dia) {
-                            dataObj = new Date(parseInt(ano), parseInt(mes) - 1, parseInt(dia));
-                        }
-                    }
-                    // CASO 2: Timestamp (número)
-                    else if (typeof valorData === 'number') {
-                        dataObj = new Date(valorData);
-                    }
-                    // CASO 3: Já é um objeto Date
-                    else if (valorData instanceof Date) {
-                        dataObj = valorData;
-                    }
-                    // CASO 4: String em outro formato (DD/MM/YYYY)
-                    else if (typeof valorData === 'string' && valorData.includes('/')) {
-                        const [dia, mes, ano] = valorData.split('/');
-                        if (dia && mes && ano) {
-                            dataObj = new Date(parseInt(ano), parseInt(mes) - 1, parseInt(dia));
-                        }
-                    }
-
-                    // Validar e formatar
-                    if (dataObj && !isNaN(dataObj.getTime())) {
-                        dataAdmissao = Utilities.formatDate(
-                            dataObj,
-                            Session.getScriptTimeZone(),
-                            'dd/MM/yyyy'
-                        );
-                        Logger.log(`✅ Data formatada: ${dataAdmissao}`);
-                    } else {
-                        Logger.log(`⚠️ Data inválida após parse: ${dataObj}`);
-                        dataAdmissao = '❌ Inválida';
-                    }
-
-                } catch (erro) {
-                    Logger.log(`❌ Erro ao processar data: ${erro} | Valor original: ${c.data_admissao}`);
-                    dataAdmissao = '❌ Erro';
-                }
-            } else {
-                Logger.log('⚠️ Campo data_admissao ausente ou vazio');
-            }
-
-            return [
-                false, // checkbox
-                formatarCPFParaExibicao(c.cpf),
-                c.nome_completo,
-                c.cargo || '-',
-                c.departamento || '-',
-                c.status,
-                dataAdmissao
-            ];
-        });
+        const dados = colaboradores.map(c => [
+            false, // checkbox
+            formatarCPFParaExibicao(c.cpf),
+            c.nome_completo,
+            c.cargo || '-',
+            c.departamento || '-',
+            c.status,
+            c.data_admissao ? Utilities.formatDate(new Date(c.data_admissao), Session.getScriptTimeZone(), 'dd/MM/yyyy') : '-'
+        ]);
 
         const startRow = 6;
         sheet.getRange(startRow, 1, dados.length, 7).setValues(dados);
 
-        // Formatação
+        // Formatação dos Dados
         sheet.getRange(startRow, 1, dados.length, 1).insertCheckboxes();
         sheet.getRange(startRow, 1, dados.length, 7)
             .setVerticalAlignment('middle')
             .setBorder(true, true, true, true, true, true);
 
-        // Zebra striping
+        // Zebra striping para leitura facil
         for (let i = 0; i < dados.length; i++) {
             if (i % 2 !== 0) {
                 sheet.getRange(startRow + i, 1, 1, 7).setBackground('#fafafa');
             }
         }
-    }
-}
-
-// ===== FUNÇÃO DE DEBUG PARA BUSCA =====
-function buscarColaboradoresAPI(filtros) {
-    try {
-        // DEBUG: Ver o que está sendo enviado
-        Logger.log('=== DEBUG BUSCA ===');
-        Logger.log('Filtros recebidos: ' + JSON.stringify(filtros));
-
-        const url = CONFIG.API_URL + '/colaboradores/buscar';
-
-        // DEBUG: Ver URL
-        Logger.log('URL da API: ' + url);
-
-        const options = {
-            method: 'post',
-            contentType: 'application/json',
-            payload: JSON.stringify({ filtros }), // ← TESTAR SEM O WRAPPER SE NÃO FUNCIONAR
-            muteHttpExceptions: true
-        };
-
-        // DEBUG: Ver payload
-        Logger.log('Payload enviado: ' + options.payload);
-
-        const response = UrlFetchApp.fetch(url, options);
-
-        // DEBUG: Ver resposta
-        Logger.log('Status HTTP: ' + response.getResponseCode());
-        Logger.log('Resposta completa: ' + response.getContentText());
-
-        const resultado = JSON.parse(response.getContentText());
-
-        if (resultado.success) {
-            Logger.log('Colaboradores encontrados: ' + resultado.colaboradores.length);
-            atualizarAbaColaboradores(resultado.colaboradores);
-            return resultado.colaboradores;
-        } else {
-            throw new Error(resultado.error);
-        }
-    } catch (erro) {
-        Logger.log('❌ ERRO NA BUSCA: ' + erro);
-        throw erro;
     }
 }
 
@@ -694,89 +604,45 @@ function novoColaboradorModal() {
     const html = HtmlService.createHtmlOutput(`
     <style>
       body { font-family: Arial; padding: 20px; }
-      label { display: block; margin-top: 10px; font-weight: bold; font-size: 13px; }
-      input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      label { display: block; margin-top: 10px; font-weight: bold; }
+      input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
       button { background: #4285f4; color: white; padding: 10px 20px; 
-               border: none; margin: 15px 5px 0 0; cursor: pointer; border-radius: 4px; font-weight: bold; }
+               border: none; margin: 10px 5px 0 0; cursor: pointer; }
       button:hover { background: #357ae8; }
       .required { color: red; }
-      .row { display: flex; gap: 10px; }
-      .col { flex: 1; }
-      h2 { color: #202124; margin-top: 0; }
     </style>
     
     <h2>➕ Novo Colaborador</h2>
     
     <form id="formColaborador">
-      <div class="row">
-        <div class="col">
-          <label>CPF <span class="required">*</span></label>
-          <input type="text" id="cpf" placeholder="000.000.000-00" required maxlength="14">
-        </div>
-        <div class="col">
-          <label>Matrícula</label>
-          <input type="text" id="matricula" placeholder="Ex: 1234">
-        </div>
-      </div>
+      <label>CPF <span class="required">*</span></label>
+      <input type="text" id="cpf" placeholder="000.000.000-00" required maxlength="14">
       
       <label>Nome Completo <span class="required">*</span></label>
       <input type="text" id="nome_completo" required>
       
-      <div class="row">
-        <div class="col">
-          <label>Email</label>
-          <input type="email" id="email" placeholder="email@empresa.com">
-        </div>
-        <div class="col">
-          <label>Telefone</label>
-          <input type="text" id="telefone" placeholder="(00) 00000-0000">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="col">
-          <label>Cargo</label>
-          <input type="text" id="cargo" placeholder="Ex: Analista">
-        </div>
-        <div class="col">
-          <label>Departamento</label>
-          <select id="departamento">
-            <option value="">Selecione...</option>
-            <option value="Comercial">Comercial</option>
-            <option value="RH">RH</option>
-            <option value="Financeiro">Financeiro</option>
-            <option value="Vendas">Vendas</option>
-            <option value="TI">TI</option>
-            <option value="Operações">Operações</option>
-          </select>
-        </div>
-      </div>
+      <label>Email</label>
+      <input type="email" id="email" placeholder="email@empresa.com">
       
-      <div class="row">
-         <div class="col">
-            <label>Código Folha</label>
-            <input type="text" id="codigo_folha" placeholder="Ex: 001">
-         </div>
-         <div class="col">
-            <label>Local de Trabalho</label>
-            <input type="text" id="local_trabalho" placeholder="Ex: Matriz">
-         </div>
-         <div class="col">
-            <label>Cidade</label>
-            <input type="text" id="cidade" placeholder="Ex: São Paulo">
-         </div>
-      </div>
-
-      <div class="row">
-        <div class="col">
-          <label>Data Nascimento</label>
-          <input type="date" id="data_nascimento">
-        </div>
-        <div class="col">
-           <label>Data Admissão</label>
-           <input type="date" id="data_admissao">
-        </div>
-      </div>
+      <label>Telefone</label>
+      <input type="text" id="telefone" placeholder="(00) 00000-0000">
+      
+      <label>Cargo</label>
+      <input type="text" id="cargo" placeholder="Ex: Analista, Gerente">
+      
+      <label>Departamento</label>
+      <select id="departamento">
+        <option value="">Selecione...</option>
+        <option value="Comercial">Comercial</option>
+        <option value="RH">RH</option>
+        <option value="Financeiro">Financeiro</option>
+        <option value="Vendas">Vendas</option>
+        <option value="TI">TI</option>
+        <option value="Operações">Operações</option>
+      </select>
+      
+      <label>Data de Admissão</label>
+      <input type="date" id="data_admissao">
       
       <label>Status</label>
       <select id="status">
@@ -822,26 +688,16 @@ function novoColaboradorModal() {
         
         const colaborador = {
           cpf: document.getElementById('cpf').value.replace(/\\D/g, ''),
-          matricula: document.getElementById('matricula').value,
           nome_completo: document.getElementById('nome_completo').value,
           email: document.getElementById('email').value,
           telefone: document.getElementById('telefone').value.replace(/\\D/g, ''),
           cargo: document.getElementById('cargo').value,
           departamento: document.getElementById('departamento').value,
-          codigo_folha: document.getElementById('codigo_folha').value,
-          local_trabalho: document.getElementById('local_trabalho').value,
-          cidade: document.getElementById('cidade').value,
-          data_nascimento: document.getElementById('data_nascimento').value,
           data_admissao: document.getElementById('data_admissao').value,
           status: document.getElementById('status').value
         };
         
-        // Remove campos vazios para não enviar string vazia
-        Object.keys(colaborador).forEach(k => {
-            if (colaborador[k] === '') delete colaborador[k];
-        });
-        
-        // Validar CPF básico
+        // Validar CPF
         if (colaborador.cpf.length !== 11) {
           mostrarMensagem('❌ CPF inválido! Digite 11 dígitos.', 'error');
           return;
@@ -853,19 +709,21 @@ function novoColaboradorModal() {
           return;
         }
         
-        mostrarMensagem('⏳ Salvando dados...', 'info');
+        mostrarMensagem('⏳ Salvando...', 'info');
         
         google.script.run
           .withSuccessHandler(function(resultado) {
             if (resultado.success) {
-              mostrarMensagem('✅ Salvo com sucesso!', 'success');
-              setTimeout(function() { google.script.host.close(); }, 1500);
+              mostrarMensagem('✅ Colaborador criado com sucesso!', 'success');
+              setTimeout(function() {
+                google.script.host.close();
+              }, 1500);
             } else {
               mostrarMensagem('❌ Erro: ' + resultado.error, 'error');
             }
           })
           .withFailureHandler(function(erro) {
-            mostrarMensagem('❌ Erro no servidor: ' + erro.message, 'error');
+            mostrarMensagem('❌ Erro ao salvar: ' + erro.message, 'error');
           })
           .criarColaboradorAPI(colaborador);
       });

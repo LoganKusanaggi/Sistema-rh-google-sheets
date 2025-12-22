@@ -7,67 +7,78 @@ const relatoriosController = {
     // ===== GERAR RELATÓRIO GENÉRICO =====
     async gerarRelatorio(req, res) {
         try {
-            const { tipo, cpfs, periodo, formato = 'json', opcoes = {} } = req.body;
+            const { tipo, cpfs, periodo, formato = 'json', opcoes = {}, salvar_historico = true } = req.body;
 
             // Validações
             if (!tipo) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Tipo de relatório é obrigatório'
-                });
+                return res.status(400).json({ success: false, error: 'Tipo de relatório é obrigatório' });
             }
-
             if (!cpfs || !Array.isArray(cpfs) || cpfs.length === 0) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'CPFs dos colaboradores são obrigatórios'
-                });
+                return res.status(400).json({ success: false, error: 'CPFs dos colaboradores são obrigatórios' });
             }
 
-            // Formatar CPFs
             const cpfsFormatados = cpfs.map(formatarCPF);
 
             // Delegar para o serviço específico
             let resultado;
-
             switch (tipo) {
-                case 'folha':
-                    resultado = await RelatorioService.gerarFolha(cpfsFormatados, periodo, opcoes);
-                    break;
-                case 'beneficios':
-                    resultado = await RelatorioService.gerarBeneficios(cpfsFormatados, periodo, opcoes);
-                    break;
-                case 'variavel':
-                    resultado = await RelatorioService.gerarVariavel(cpfsFormatados, periodo, opcoes);
-                    break;
-                case 'apontamentos':
-                    resultado = await RelatorioService.gerarApontamentos(cpfsFormatados, periodo, opcoes);
-                    break;
-                case 'seguros':
-                    resultado = await RelatorioService.gerarSeguros(cpfsFormatados, opcoes);
-                    break;
-                case 'ficha_completa':
-                    resultado = await RelatorioService.gerarFichaCompleta(cpfsFormatados);
-                    break;
-                default:
-                    return res.status(400).json({
-                        success: false,
-                        error: `Tipo de relatório inválido: ${tipo}`
-                    });
+                case 'folha': resultado = await RelatorioService.gerarFolha(cpfsFormatados, periodo, opcoes); break;
+                case 'beneficios': resultado = await RelatorioService.gerarBeneficios(cpfsFormatados, periodo, opcoes); break;
+                case 'variavel': resultado = await RelatorioService.gerarVariavel(cpfsFormatados, periodo, opcoes); break;
+                case 'apontamentos': resultado = await RelatorioService.gerarApontamentos(cpfsFormatados, periodo, opcoes); break;
+                case 'seguros': resultado = await RelatorioService.gerarSeguros(cpfsFormatados, opcoes); break;
+                default: return res.status(400).json({ success: false, error: `Tipo inválido: ${tipo}` });
             }
 
-            // Registrar log
-            await supabase.from('logs_sincronizacao').insert({
-                tabela_origem: 'relatorios',
-                operacao: 'SYNC',
-                dados_depois: { tipo, cpfs: cpfsFormatados, periodo },
-                sucesso: true,
-                quantidade_registros: cpfsFormatados.length
-            });
+            // ===== PERSISTIR NO BANCO (HISTÓRICO) =====
+            let relatorioId = null;
+            if (salvar_historico) {
+                // 1. Criar o cabeçalho do relatório
+                // Nome Ex: "folha 01-202512" (timestamp)
+                const timestamp = new Date().getTime();
+                const nomeRelatorio = `${tipo} ${timestamp}`;
+
+                const { data: relCriado, error: errCriacao } = await supabase
+                    .from('relatorios_gerados')
+                    .insert({
+                        nome: nomeRelatorio,
+                        tipo: tipo,
+                        mes_referencia: periodo?.mes,
+                        ano_referencia: periodo?.ano,
+                        filtros_usados: { cpfs: cpfsFormatados, opcoes },
+                        status: 'gerado'
+                    })
+                    .select()
+                    .single();
+
+                if (errCriacao) {
+                    console.error('Erro ao salvar cabeçalho do relatório:', errCriacao);
+                    // Não aborta a resposta, apenas loga
+                } else {
+                    relatorioId = relCriado.id;
+
+                    // 2. Salvar os itens (linhas)
+                    const itensParaSalvar = resultado.dados.map(linha => ({
+                        relatorio_id: relatorioId,
+                        cpf: linha.cpf || null, // Se tiver CPF na linha
+                        nome_colaborador: linha.nome_completo || linha.nome,
+                        dados_snapshot: linha
+                    }));
+
+                    if (itensParaSalvar.length > 0) {
+                        const { error: errItens } = await supabase
+                            .from('relatorios_itens')
+                            .insert(itensParaSalvar);
+
+                        if (errItens) console.error('Erro ao salvar itens do relatório:', errItens);
+                    }
+                }
+            }
 
             res.json({
                 success: true,
                 tipo,
+                relatorio_id: relatorioId,
                 dados: resultado.dados,
                 totais: resultado.totais,
                 layout: resultado.layout,
@@ -80,188 +91,91 @@ const relatoriosController = {
 
         } catch (error) {
             console.error('Erro ao gerar relatório:', error);
-
-            // Log de erro
-            await supabase.from('logs_sincronizacao').insert({
-                tabela_origem: 'relatorios',
-                operacao: 'SYNC',
-                sucesso: false,
-                mensagem_erro: error.message
-            });
-
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
-        }
-    },
-
-    // ===== LISTAR TIPOS DE RELATÓRIOS DISPONÍVEIS =====
-    async listarTipos(req, res) {
-        try {
-            const tipos = [
-                {
-                    id: 'folha',
-                    nome: 'Folha de Pagamento',
-                    descricao: 'Relatório completo de folha de pagamento mensal',
-                    requer_periodo: true,
-                    campos: [
-                        'nome', 'codigo_folha', 'salario_base', 'horas_extras',
-                        'inss', 'irrf', 'salario_liquido'
-                    ]
-                },
-                {
-                    id: 'beneficios',
-                    nome: 'Benefícios Flexíveis (Caju)',
-                    descricao: 'Relatório de benefícios flexíveis',
-                    requer_periodo: true,
-                    campos: [
-                        'nome', 'cidade', 'alimentacao', 'transporte',
-                        'cultura', 'saude', 'total_beneficios'
-                    ]
-                },
-                {
-                    id: 'variavel',
-                    nome: 'Apuração de Variável',
-                    descricao: 'Comissões e variáveis por marca',
-                    requer_periodo: true,
-                    campos: [
-                        'nome_vendedor', 'caffeine_fat_realizado', 'sublyme_fat_realizado',
-                        'koala_fat_realizado', 'multiplicador', 'valor_variavel'
-                    ]
-                },
-                {
-                    id: 'apontamentos',
-                    nome: 'Apontamentos (Controle de Ponto)',
-                    descricao: 'Relatório de apontamentos mensais',
-                    requer_periodo: true,
-                    campos: [
-                        'nome', 'codigo_folha', 'horas_extras_50', 'horas_extras_100',
-                        'horas_noturnas', 'dias_faltas'
-                    ]
-                },
-                {
-                    id: 'seguros',
-                    nome: 'Seguros de Vida',
-                    descricao: 'Relatório de apólices de seguro de vida',
-                    requer_periodo: false,
-                    campos: [
-                        'nome', 'data_nascimento', 'data_admissao', 'cpf',
-                        'vigencia', 'valor_segurado', 'sexo'
-                    ]
-                },
-                {
-                    id: 'ficha_completa',
-                    nome: 'Ficha Completa do Colaborador',
-                    descricao: 'Todos os dados do colaborador',
-                    requer_periodo: false,
-                    campos: ['todos']
-                }
-            ];
-
-            res.json({
-                success: true,
-                tipos
-            });
-
-        } catch (error) {
-            console.error('Erro ao listar tipos:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json({ success: false, error: error.message });
         }
     },
 
     // ===== BUSCAR COLABORADORES COM FILTROS =====
     async buscarComFiltros(req, res) {
         try {
-            const {
-                status,
-                departamento,
-                cargo,
-                data_admissao_de,
-                data_admissao_ate,
-                cidade,
-                termo_busca,
-                campos = ['id', 'cpf', 'nome_completo', 'cargo', 'departamento', 'status']
-            } = req.body;
+            console.log('--- BUSCAR COM FILTROS CHAMADO ---');
+            console.log('Body recebido:', JSON.stringify(req.body, null, 2));
+
+            const { filtros } = req.body;
+            // Filtros esperados: { nome, cpf, departamento, cargo, status }
 
             let query = supabase
                 .from('colaboradores')
-                .select(campos.join(','));
+                .select('id, cpf, nome_completo, departamento, cargo, status, data_admissao, email, telefone, matricula, codigo_folha, local_trabalho, cidade, data_nascimento')
+                .order('nome_completo', { ascending: true });
 
-            // Aplicar filtros
-            if (status) query = query.eq('status', status);
-            if (departamento) query = query.eq('departamento', departamento);
-            if (cargo) query = query.eq('cargo', cargo);
-            if (cidade) query = query.eq('cidade', cidade);
-            if (data_admissao_de) query = query.gte('data_admissao', data_admissao_de);
-            if (data_admissao_ate) query = query.lte('data_admissao', data_admissao_ate);
-
-            // Busca por termo (nome ou CPF)
-            if (termo_busca) {
-                query = query.or(`nome_completo.ilike.%${termo_busca}%,cpf.ilike.%${termo_busca}%`);
+            if (filtros) {
+                console.log('Aplicando filtros:', filtros);
+                if (filtros.nome) {
+                    query = query.ilike('nome_completo', `%${filtros.nome}%`);
+                }
+                if (filtros.cpf) {
+                    const cpfLimpo = filtros.cpf.replace(/\D/g, '');
+                    console.log('Filtrando por CPF:', cpfLimpo);
+                    query = query.eq('cpf', cpfLimpo);
+                }
+                if (filtros.departamento) {
+                    query = query.eq('departamento', filtros.departamento);
+                }
+                if (filtros.cargo) {
+                    query = query.ilike('cargo', `%${filtros.cargo}%`);
+                }
+                if (filtros.status) {
+                    query = query.eq('status', filtros.status);
+                }
+            } else {
+                console.log('Nenhum filtro fornecido no objeto filtros');
             }
-
-            query = query.order('nome_completo', { ascending: true });
 
             const { data, error } = await query;
 
             if (error) throw error;
 
+            console.log('Registros encontrados:', data ? data.length : 0);
+            if (data && data.length > 0) {
+                console.log('Exemplo de registro (primeiro):', JSON.stringify(data[0], null, 2));
+                console.log('CHAVES ENCONTRADAS NO BANCO:', Object.keys(data[0]));
+            }
+
             res.json({
                 success: true,
                 colaboradores: data,
-                total: data.length,
-                filtros_aplicados: {
-                    status,
-                    departamento,
-                    cargo,
-                    data_admissao_de,
-                    data_admissao_ate,
-                    termo_busca
-                }
+                total: data.length
             });
 
         } catch (error) {
             console.error('Erro ao buscar colaboradores:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
+            res.status(500).json({ success: false, error: error.message });
         }
     },
 
-    // ===== EXPORTAR RELATÓRIO (Excel, PDF) =====
+    // ===== LISTAR TIPOS DE RELATÓRIOS =====
+    async listarTipos(req, res) {
+        const tipos = [
+            { id: 'folha', nome: 'Folha de Pagamento' },
+            { id: 'beneficios', nome: 'Benefícios Flexíveis' },
+            { id: 'variavel', nome: 'Remuneração Variável' },
+            { id: 'apontamentos', nome: 'Apontamentos' },
+            { id: 'seguros', nome: 'Seguro de Vida' }
+        ];
+        res.json({ success: true, tipos });
+    },
+
+    // ===== EXPORTAR RELATÓRIO (Stub) =====
     async exportarRelatorio(req, res) {
-        try {
-            const { tipo, cpfs, periodo, formato = 'excel' } = req.body;
-
-            // Gerar dados do relatório
-            const resultado = await relatoriosController.gerarRelatorio(req, res);
-
-            // TODO: Implementar conversão para Excel/PDF
-            // Aqui você pode usar bibliotecas como:
-            // - exceljs (para Excel)
-            // - pdfkit (para PDF)
-
-            res.json({
-                success: true,
-                message: 'Funcionalidade de exportação em desenvolvimento',
-                formato,
-                dados: resultado
-            });
-
-        } catch (error) {
-            console.error('Erro ao exportar:', error);
-            res.status(500).json({
-                success: false,
-                error: error.message
-            });
-        }
+        // Futuro: Gerar PDF/Excel aqui
+        const { relatorio_id, formato } = req.body;
+        res.json({
+            success: true,
+            message: 'Funcionalidade de exportação em desenvolvimento',
+            download_url: null
+        });
     }
-
 };
 
 module.exports = relatoriosController;

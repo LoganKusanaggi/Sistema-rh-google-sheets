@@ -1,0 +1,1004 @@
+// =====================================================
+// GOOGLE APPS SCRIPT - SISTEMA RH v2.0 (ARQUITETURA CORRETA)
+// =====================================================
+// FLUXO: Buscar → Selecionar → Gerar Relatório
+// SUPABASE = Única fonte da verdade
+// SHEETS = Interface + Gerador de relatórios
+// =====================================================
+
+const CONFIG = {
+  API_URL: 'https://sistema-rh-google-sheets.vercel.app/api', // ← SEM barra no final + /api
+  
+  ABAS: {
+    DASHBOARD: 'Dashboard',
+    COLABORADORES: 'Colaboradores',
+    LANCAMENTOS: 'Lançamentos',
+    RELATORIOS: 'Relatórios',
+    CONFIGURACOES: 'Configurações'
+  },
+  
+  EMPRESA: {
+    codigo: '0000312',
+    razao_social: 'SUPER INDUSTRIA DE ALIMENTOS LTDA',
+    cnpj: '43707279000150'
+  }
+};
+
+// =====================================================
+// CRIAR MENU PERSONALIZADO
+// =====================================================
+
+function onOpen() {
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('🔄 Sistema RH')
+    .addSubMenu(ui.createMenu('👥 Colaboradores')
+      .addItem('🔍 Buscar Colaborador', 'buscarColaboradorModal')
+      .addItem('➕ Novo Colaborador', 'novoColaboradorModal')
+      .addItem('📝 Editar Selecionados', 'editarSelecionados')
+      .addItem('🗑️ Excluir Selecionados', 'excluirSelecionados'))
+    .addSeparator()
+    .addSubMenu(ui.createMenu('📝 Lançamentos')
+      .addItem('💰 Lançar Folha', 'lancarFolha')
+      .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
+      .addItem('📊 Lançar Variável', 'lancarVariavel')
+      .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos'))
+    .addSeparator()
+    .addSubMenu(ui.createMenu('📄 Relatórios')
+      .addItem('💰 Folha de Pagamento', 'gerarRelatorioFolha')
+      .addItem('🎁 Benefícios Caju', 'gerarRelatorioBeneficios')
+      .addItem('📊 Apuração de Variável', 'gerarRelatorioVariavel')
+      .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
+      .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros'))
+    .addSeparator()
+    .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
+    .addItem('⚙️ Configurações', 'abrirConfiguracoes')
+    .addToUi();
+}
+
+// =====================================================
+// ABA COLABORADORES - BUSCA E GESTÃO
+// =====================================================
+
+function buscarColaboradorModal() {
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: Arial; padding: 20px; }
+      input, select { width: 100%; padding: 8px; margin: 5px 0; }
+      button { background: #4285f4; color: white; padding: 10px 20px; 
+               border: none; margin: 5px; cursor: pointer; }
+      button:hover { background: #357ae8; }
+      .filtros { background: #f5f5f5; padding: 15px; margin: 10px 0; }
+    </style>
+    
+    <h2>🔍 Buscar Colaboradores</h2>
+    
+    <div class="filtros">
+      <label>Busca Rápida:</label>
+      <input type="text" id="termo_busca" placeholder="Nome ou CPF">
+      
+      <label>Status:</label>
+      <select id="status">
+        <option value="">Todos</option>
+        <option value="ativo" selected>Ativo</option>
+        <option value="inativo">Inativo</option>
+        <option value="ferias">Férias</option>
+      </select>
+      
+      <label>Departamento:</label>
+      <select id="departamento">
+        <option value="">Todos</option>
+        <option value="Comercial">Comercial</option>
+        <option value="RH">RH</option>
+        <option value="Financeiro">Financeiro</option>
+        <option value="Vendas">Vendas</option>
+      </select>
+      
+      <label>Cargo:</label>
+      <input type="text" id="cargo" placeholder="Ex: Analista, Gerente">
+    </div>
+    
+    <button onclick="buscar()">🔍 Buscar</button>
+    <button onclick="google.script.host.close()">Cancelar</button>
+    
+    <div id="resultado"></div>
+    
+    <script>
+      function buscar() {
+        const filtros = {
+          termo_busca: document.getElementById('termo_busca').value,
+          status: document.getElementById('status').value,
+          departamento: document.getElementById('departamento').value,
+          cargo: document.getElementById('cargo').value
+        };
+        
+        google.script.run
+          .withSuccessHandler(exibirResultados)
+          .withFailureHandler(err => alert('Erro: ' + err))
+          .buscarColaboradoresAPI(filtros);
+      }
+      
+      function exibirResultados(colaboradores) {
+        const div = document.getElementById('resultado');
+        if (colaboradores.length === 0) {
+          div.innerHTML = '<p>Nenhum colaborador encontrado.</p>';
+          return;
+        }
+        
+        let html = '<h3>Encontrados: ' + colaboradores.length + '</h3>';
+        html += '<table border="1" style="width:100%; border-collapse:collapse;">';
+        html += '<tr><th>CPF</th><th>Nome</th><th>Cargo</th><th>Status</th></tr>';
+        
+        colaboradores.forEach(c => {
+          html += '<tr>';
+          html += '<td>' + formatarCPF(c.cpf) + '</td>';
+          html += '<td>' + c.nome_completo + '</td>';
+          html += '<td>' + (c.cargo || '-') + '</td>';
+          html += '<td>' + c.status + '</td>';
+          html += '</tr>';
+        });
+        
+        html += '</table>';
+        div.innerHTML = html;
+      }
+      
+      function formatarCPF(cpf) {
+        return cpf.replace(/(\\d{3})(\\d{3})(\\d{3})(\\d{2})/, '$1.$2.$3-$4');
+      }
+    </script>
+  `).setWidth(600).setHeight(500);
+  
+  SpreadsheetApp.getUi().showModalDialog(html, 'Buscar Colaboradores');
+}
+
+function buscarColaboradoresAPI(filtros) {
+  try {
+    const url = CONFIG.API_URL + '/colaboradores/buscar';
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({ filtros }),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const resultado = JSON.parse(response.getContentText());
+    
+    if (resultado.success) {
+      // Atualizar aba Colaboradores com resultados
+      atualizarAbaColaboradores(resultado.colaboradores);
+      return resultado.colaboradores;
+    } else {
+      throw new Error(resultado.error);
+    }
+  } catch (erro) {
+    Logger.log('Erro ao buscar:', erro);
+    throw erro;
+  }
+}
+
+function atualizarAbaColaboradores(colaboradores) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
+  
+  if (!sheet) {
+    criarAbaColaboradores();
+    return;
+  }
+  
+  // Limpar dados antigos (manter cabeçalho)
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha > 5) {
+    sheet.getRange(6, 1, ultimaLinha - 5, sheet.getLastColumn()).clearContent();
+  }
+  
+  // Adicionar novos dados
+  if (colaboradores.length > 0) {
+    const dados = colaboradores.map(c => [
+      false, // checkbox
+      formatarCPFParaExibicao(c.cpf),
+      c.nome_completo,
+      c.cargo || '',
+      c.departamento || '',
+      c.status,
+      c.data_admissao || ''
+    ]);
+    
+    sheet.getRange(6, 1, dados.length, 7).setValues(dados);
+    
+    // Formatar
+    sheet.getRange(6, 1, dados.length, 1).insertCheckboxes();
+  }
+}
+
+function criarAbaColaboradores() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.insertSheet(CONFIG.ABAS.COLABORADORES);
+  
+  // Cabeçalho
+  sheet.getRange('A1').setValue('👥 GESTÃO DE COLABORADORES').setFontSize(16).setFontWeight('bold');
+  sheet.getRange('A3').setValue('🔍 BUSCAR:').setFontWeight('bold');
+  sheet.getRange('A4').setValue('Use o menu "Sistema RH → Colaboradores → Buscar" para filtrar');
+  
+  // Colunas da tabela
+  const colunas = [['', 'CPF', 'Nome', 'Cargo', 'Departamento', 'Status', 'Admissão']];
+  sheet.getRange(5, 1, 1, 7).setValues(colunas);
+  sheet.getRange(5, 1, 1, 7).setFontWeight('bold').setBackground('#4285f4').setFontColor('white');
+  
+  // Larguras
+  sheet.setColumnWidth(1, 40);  // Checkbox
+  sheet.setColumnWidth(2, 150); // CPF
+  sheet.setColumnWidth(3, 250); // Nome
+  sheet.setColumnWidth(4, 150); // Cargo
+  sheet.setColumnWidth(5, 150); // Departamento
+  sheet.setColumnWidth(6, 100); // Status
+  sheet.setColumnWidth(7, 120); // Admissão
+  
+  // Congelar linhas
+  sheet.setFrozenRows(5);
+}
+
+// =====================================================
+// GERAR RELATÓRIOS
+// =====================================================
+
+function gerarRelatorioFolha() {
+  gerarRelatorioGenerico('folha', 'Folha de Pagamento');
+}
+
+function gerarRelatorioBeneficios() {
+  gerarRelatorioGenerico('beneficios', 'Benefícios Caju');
+}
+
+function gerarRelatorioVariavel() {
+  gerarRelatorioGenerico('variavel', 'Apuração de Variável');
+}
+
+function gerarRelatorioApontamentos() {
+  gerarRelatorioGenerico('apontamentos', 'Apontamentos');
+}
+
+function gerarRelatorioSeguros() {
+  gerarRelatorioGenerico('seguros', 'Seguros de Vida');
+}
+
+function gerarRelatorioGenerico(tipo, nome) {
+  const ui = SpreadsheetApp.getUi();
+  
+  // Obter CPFs selecionados
+  const cpfsSelecionados = obterCPFsSelecionados();
+  
+  if (cpfsSelecionados.length === 0) {
+    ui.alert('⚠️ Nenhum colaborador selecionado', 
+      'Vá para a aba Colaboradores e marque os checkboxes dos colaboradores desejados.', 
+      ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Pedir período (se necessário)
+  let periodo = null;
+  if (['folha', 'beneficios', 'variavel', 'apontamentos'].includes(tipo)) {
+    periodo = pedirPeriodo();
+    if (!periodo) return; // Usuário cancelou
+  }
+  
+  // Gerar relatório
+  ui.alert('🔄 Gerando relatório...', 
+    `Processando ${cpfsSelecionados.length} colaborador(es). Aguarde...`, 
+    ui.ButtonSet.OK);
+  
+  try {
+    const dados = chamarAPIRelatorio(tipo, cpfsSelecionados, periodo);
+    
+    if (dados.success) {
+      // Criar nova aba com o relatório
+      criarAbaRelatorio(tipo, nome, dados, periodo);
+      
+      ui.alert('✅ Relatório gerado!', 
+        `Relatório "${nome}" criado com sucesso!\nVerifique a nova aba criada.`, 
+        ui.ButtonSet.OK);
+    } else {
+      throw new Error(dados.error);
+    }
+  } catch (erro) {
+    ui.alert('❌ Erro', 'Erro ao gerar relatório: ' + erro.message, ui.ButtonSet.OK);
+  }
+}
+
+function obterCPFsSelecionados() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
+  if (!sheet) return [];
+  
+  const ultimaLinha = sheet.getLastRow();
+  if (ultimaLinha < 6) return [];
+  
+  const dados = sheet.getRange(6, 1, ultimaLinha - 5, 2).getValues();
+  
+  const cpfs = dados
+    .filter(linha => linha[0] === true) // checkbox marcado
+    .map(linha => linha[1].replace(/\D/g, '')); // remover formatação do CPF
+  
+  return cpfs;
+}
+
+function pedirPeriodo() {
+  const ui = SpreadsheetApp.getUi();
+  
+  const dataAtual = new Date();
+  const mesAtual = dataAtual.getMonth() + 1;
+  const anoAtual = dataAtual.getFullYear();
+  
+  const resposta = ui.prompt(
+    '📅 Período do Relatório',
+    `Digite o período no formato MM/AAAA\nExemplo: ${String(mesAtual).padStart(2, '0')}/${anoAtual}`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (resposta.getSelectedButton() !== ui.Button.OK) {
+    return null;
+  }
+  
+  const texto = resposta.getResponseText().trim();
+  const match = texto.match(/^(\d{1,2})\/(\d{4})$/);
+  
+  if (!match) {
+    ui.alert('❌ Formato inválido', 'Use o formato MM/AAAA (ex: 12/2024)', ui.ButtonSet.OK);
+    return null;
+  }
+  
+  return {
+    mes: parseInt(match[1]),
+    ano: parseInt(match[2])
+  };
+}
+
+function chamarAPIRelatorio(tipo, cpfs, periodo) {
+  const url = CONFIG.API_URL + '/relatorios/gerar';
+  const payload = {
+    tipo,
+    cpfs,
+    periodo,
+    formato: 'json'
+  };
+  
+  const options = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  
+  const response = UrlFetchApp.fetch(url, options);
+  return JSON.parse(response.getContentText());
+}
+
+function criarAbaRelatorio(tipo, nome, dados, periodo) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Nome da aba
+  let nomeAba = nome;
+  if (periodo) {
+    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    nomeAba = `${nome} ${meses[periodo.mes-1]}-${periodo.ano}`;
+  }
+  
+  // Criar ou limpar aba
+  let sheet = ss.getSheetByName(nomeAba);
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet(nomeAba);
+  }
+  
+  // Aplicar layout baseado no template
+  aplicarLayoutRelatorio(sheet, tipo, dados);
+}
+
+function aplicarLayoutRelatorio(sheet, tipo, dados) {
+  const layout = dados.layout;
+  let linhaAtual = 1;
+  
+  // CABEÇALHO
+  if (layout.cabecalho) {
+    layout.cabecalho.forEach(linha => {
+      sheet.getRange(linhaAtual, 1).setValue(linha[0]);
+      if (layout.formatacao.cabecalho) {
+        const range = sheet.getRange(linhaAtual, 1);
+        range.setFontSize(layout.formatacao.cabecalho.fontSize || 12);
+        range.setFontWeight(layout.formatacao.cabecalho.bold ? 'bold' : 'normal');
+        if (layout.formatacao.cabecalho.background) {
+          range.setBackground(layout.formatacao.cabecalho.background);
+        }
+        if (layout.formatacao.cabecalho.color) {
+          range.setFontColor(layout.formatacao.cabecalho.color);
+        }
+      }
+      linhaAtual++;
+    });
+  }
+  
+  // COLUNAS (Header da tabela)
+  const colunas = layout.colunas.map(c => c.nome);
+  sheet.getRange(linhaAtual, 1, 1, colunas.length).setValues([colunas]);
+  
+  const headerRange = sheet.getRange(linhaAtual, 1, 1, colunas.length);
+  if (layout.formatacao.colunas) {
+    headerRange.setFontWeight('bold');
+    headerRange.setFontSize(layout.formatacao.colunas.fontSize || 10);
+    if (layout.formatacao.colunas.background) {
+      headerRange.setBackground(layout.formatacao.colunas.background);
+    }
+    if (layout.formatacao.colunas.color) {
+      headerRange.setFontColor(layout.formatacao.colunas.color);
+    }
+  }
+  
+  // Aplicar larguras
+  layout.colunas.forEach((col, i) => {
+    sheet.setColumnWidth(i + 1, col.largura || 120);
+  });
+  
+  linhaAtual++;
+  
+  // DADOS
+  if (layout.dados && layout.dados.length > 0) {
+    const dadosTabela = layout.dados.map(linha => {
+      return layout.colunas.map(col => {
+        const valor = linha[col.campo];
+        
+        // Formatar valor baseado no tipo
+        if (col.formato === 'moeda' && typeof valor === 'number') {
+          return 'R$ ' + valor.toFixed(2).replace('.', ',');
+        }
+        if (col.formato === 'percentual' && typeof valor === 'number') {
+          return valor.toFixed(2) + '%';
+        }
+        if (col.formato === 'cpf' && typeof valor === 'string') {
+          return formatarCPFParaExibicao(valor);
+        }
+        
+        return valor !== null && valor !== undefined ? valor : '';
+      });
+    });
+    
+    sheet.getRange(linhaAtual, 1, dadosTabela.length, colunas.length).setValues(dadosTabela);
+    
+    // Zebra stripe
+    if (layout.formatacao.dados && layout.formatacao.dados.zebraStripe) {
+      for (let i = 0; i < dadosTabela.length; i += 2) {
+        sheet.getRange(linhaAtual + i, 1, 1, colunas.length).setBackground('#f9f9f9');
+      }
+    }
+    
+    linhaAtual += dadosTabela.length;
+  }
+  
+  // RODAPÉ
+  if (layout.rodape) {
+    layout.rodape.forEach(linha => {
+      sheet.getRange(linhaAtual, 1, 1, linha.length).setValues([linha]);
+      
+      if (layout.formatacao.rodape) {
+        const range = sheet.getRange(linhaAtual, 1, 1, linha.length);
+        range.setFontWeight('bold');
+        if (layout.formatacao.rodape.background) {
+          range.setBackground(layout.formatacao.rodape.background);
+        }
+      }
+      
+      linhaAtual++;
+    });
+  }
+  
+  // Congelar linhas do cabeçalho
+  sheet.setFrozenRows(layout.cabecalho ? layout.cabecalho.length + 1 : 1);
+}
+
+// =====================================================
+// LANÇAMENTOS
+// =====================================================
+
+function lancarFolha() {
+  mostrarFormularioLancamento('folha', 'Folha de Pagamento');
+}
+
+function lancarBeneficios() {
+  mostrarFormularioLancamento('beneficios', 'Benefícios Caju');
+}
+
+function lancarVariavel() {
+  mostrarFormularioLancamento('variavel', 'Variável/Comissão');
+}
+
+function lancarApontamentos() {
+  mostrarFormularioLancamento('apontamentos', 'Apontamentos');
+}
+
+function mostrarFormularioLancamento(tipo, nome) {
+  // TODO: Criar formulários específicos para cada tipo
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('Em Desenvolvimento', 
+    `Formulário de ${nome} será implementado em breve.\nPor enquanto, use a API diretamente.`, 
+    ui.ButtonSet.OK);
+}
+
+// =====================================================
+// UTILITÁRIOS
+// =====================================================
+
+function validarCPF(cpf) {
+  cpf = cpf.replace(/\D/g, '');
+  if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += parseInt(cpf.charAt(i)) * (10 - i);
+  let resto = 11 - (soma % 11);
+  if ((resto >= 10 ? 0 : resto) !== parseInt(cpf.charAt(9))) return false;
+  
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += parseInt(cpf.charAt(i)) * (11 - i);
+  resto = 11 - (soma % 11);
+  return (resto >= 10 ? 0 : resto) === parseInt(cpf.charAt(10));
+}
+
+function formatarCPFParaExibicao(cpf) {
+  cpf = cpf.replace(/\D/g, '');
+  return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+
+function atualizarDashboard() {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('🔄 Dashboard', 'Funcionalidade em desenvolvimento', ui.ButtonSet.OK);
+}
+
+function abrirConfiguracoes() {
+  const ui = SpreadsheetApp.getUi();
+  ui.alert('⚙️ Configurações', 
+    `URL da API: ${CONFIG.API_URL}\n\nPara alterar, edite o script.`, 
+    ui.ButtonSet.OK);
+}
+// =====================================================
+// FUNÇÕES FALTANTES - ADICIONE NO FINAL DO CÓDIGO
+// =====================================================
+
+function novoColaboradorModal() {
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: Arial; padding: 20px; }
+      label { display: block; margin-top: 10px; font-weight: bold; }
+      input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+      button { background: #4285f4; color: white; padding: 10px 20px; 
+               border: none; margin: 10px 5px 0 0; cursor: pointer; }
+      button:hover { background: #357ae8; }
+      .required { color: red; }
+    </style>
+    
+    <h2>➕ Novo Colaborador</h2>
+    
+    <form id="formColaborador">
+      <label>CPF <span class="required">*</span></label>
+      <input type="text" id="cpf" placeholder="000.000.000-00" required maxlength="14">
+      
+      <label>Nome Completo <span class="required">*</span></label>
+      <input type="text" id="nome_completo" required>
+      
+      <label>Email</label>
+      <input type="email" id="email" placeholder="email@empresa.com">
+      
+      <label>Telefone</label>
+      <input type="text" id="telefone" placeholder="(00) 00000-0000">
+      
+      <label>Cargo</label>
+      <input type="text" id="cargo" placeholder="Ex: Analista, Gerente">
+      
+      <label>Departamento</label>
+      <select id="departamento">
+        <option value="">Selecione...</option>
+        <option value="Comercial">Comercial</option>
+        <option value="RH">RH</option>
+        <option value="Financeiro">Financeiro</option>
+        <option value="Vendas">Vendas</option>
+        <option value="TI">TI</option>
+        <option value="Operações">Operações</option>
+      </select>
+      
+      <label>Data de Admissão</label>
+      <input type="date" id="data_admissao">
+      
+      <label>Status</label>
+      <select id="status">
+        <option value="ativo" selected>Ativo</option>
+        <option value="inativo">Inativo</option>
+        <option value="ferias">Férias</option>
+        <option value="afastado">Afastado</option>
+      </select>
+      
+      <div style="margin-top: 20px;">
+        <button type="submit">✅ Salvar</button>
+        <button type="button" onclick="google.script.host.close()">Cancelar</button>
+      </div>
+    </form>
+    
+    <div id="mensagem" style="margin-top: 20px; padding: 10px; display: none;"></div>
+    
+    <script>
+      // Formatar CPF enquanto digita
+      document.getElementById('cpf').addEventListener('input', function(e) {
+        let value = e.target.value.replace(/\\D/g, '');
+        if (value.length <= 11) {
+          value = value.replace(/(\\d{3})(\\d)/, '$1.$2');
+          value = value.replace(/(\\d{3})(\\d)/, '$1.$2');
+          value = value.replace(/(\\d{3})(\\d{1,2})$/, '$1-$2');
+          e.target.value = value;
+        }
+      });
+      
+      // Formatar telefone
+      document.getElementById('telefone').addEventListener('input', function(e) {
+        let value = e.target.value.replace(/\\D/g, '');
+        if (value.length <= 11) {
+          value = value.replace(/(\\d{2})(\\d)/, '($1) $2');
+          value = value.replace(/(\\d{5})(\\d)/, '$1-$2');
+          e.target.value = value;
+        }
+      });
+      
+      // Enviar formulário
+      document.getElementById('formColaborador').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const colaborador = {
+          cpf: document.getElementById('cpf').value.replace(/\\D/g, ''),
+          nome_completo: document.getElementById('nome_completo').value,
+          email: document.getElementById('email').value,
+          telefone: document.getElementById('telefone').value.replace(/\\D/g, ''),
+          cargo: document.getElementById('cargo').value,
+          departamento: document.getElementById('departamento').value,
+          data_admissao: document.getElementById('data_admissao').value,
+          status: document.getElementById('status').value
+        };
+        
+        // Validar CPF
+        if (colaborador.cpf.length !== 11) {
+          mostrarMensagem('❌ CPF inválido! Digite 11 dígitos.', 'error');
+          return;
+        }
+        
+        // Validar nome
+        if (!colaborador.nome_completo || colaborador.nome_completo.trim().length < 3) {
+          mostrarMensagem('❌ Nome deve ter pelo menos 3 caracteres.', 'error');
+          return;
+        }
+        
+        mostrarMensagem('⏳ Salvando...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(function(resultado) {
+            if (resultado.success) {
+              mostrarMensagem('✅ Colaborador criado com sucesso!', 'success');
+              setTimeout(function() {
+                google.script.host.close();
+              }, 1500);
+            } else {
+              mostrarMensagem('❌ Erro: ' + resultado.error, 'error');
+            }
+          })
+          .withFailureHandler(function(erro) {
+            mostrarMensagem('❌ Erro ao salvar: ' + erro.message, 'error');
+          })
+          .criarColaboradorAPI(colaborador);
+      });
+      
+      function mostrarMensagem(texto, tipo) {
+        const div = document.getElementById('mensagem');
+        div.style.display = 'block';
+        div.innerHTML = texto;
+        
+        if (tipo === 'success') {
+          div.style.background = '#d4edda';
+          div.style.color = '#155724';
+          div.style.border = '1px solid #c3e6cb';
+        } else if (tipo === 'error') {
+          div.style.background = '#f8d7da';
+          div.style.color = '#721c24';
+          div.style.border = '1px solid #f5c6cb';
+        } else {
+          div.style.background = '#d1ecf1';
+          div.style.color = '#0c5460';
+          div.style.border = '1px solid #bee5eb';
+        }
+      }
+    </script>
+  `).setWidth(500).setHeight(650);
+  
+  SpreadsheetApp.getUi().showModalDialog(html, 'Novo Colaborador');
+}
+
+function criarColaboradorAPI(colaborador) {
+  try {
+    const url = CONFIG.API_URL + '/colaboradores';
+    const options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(colaborador),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const resultado = JSON.parse(response.getContentText());
+    
+    if (resultado.success) {
+      // Atualizar lista de colaboradores
+      buscarColaboradoresAPI({});
+      return { success: true };
+    } else {
+      return { success: false, error: resultado.error };
+    }
+  } catch (erro) {
+    Logger.log('Erro ao criar colaborador:', erro);
+    return { success: false, error: erro.message };
+  }
+}
+
+function editarSelecionados() {
+  const ui = SpreadsheetApp.getUi();
+  
+  const cpfs = obterCPFsSelecionados();
+  
+  if (cpfs.length === 0) {
+    ui.alert('⚠️ Nenhum colaborador selecionado', 
+      'Marque o checkbox de UM colaborador que deseja editar.', 
+      ui.ButtonSet.OK);
+    return;
+  }
+  
+  if (cpfs.length > 1) {
+    ui.alert('⚠️ Selecione apenas um colaborador', 
+      'A edição funciona com um colaborador por vez.\nMarque apenas um checkbox.', 
+      ui.ButtonSet.OK);
+    return;
+  }
+  
+  // Buscar dados do colaborador
+  try {
+    const cpf = cpfs[0];
+    const url = CONFIG.API_URL + '/colaboradores/' + cpf;
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const resultado = JSON.parse(response.getContentText());
+    
+    if (resultado.success) {
+      mostrarModalEdicao(resultado.colaborador);
+    } else {
+      throw new Error(resultado.error);
+    }
+  } catch (erro) {
+    ui.alert('❌ Erro', 'Erro ao buscar colaborador: ' + erro.message, ui.ButtonSet.OK);
+  }
+}
+
+function mostrarModalEdicao(colaborador) {
+  const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: Arial; padding: 20px; }
+      label { display: block; margin-top: 10px; font-weight: bold; }
+      input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+      button { background: #4285f4; color: white; padding: 10px 20px; 
+               border: none; margin: 10px 5px 0 0; cursor: pointer; }
+      button:hover { background: #357ae8; }
+      .info { background: #e3f2fd; padding: 10px; margin-bottom: 15px; border-left: 4px solid #2196f3; }
+      .readonly { background: #f5f5f5; cursor: not-allowed; }
+    </style>
+    
+    <h2>📝 Editar Colaborador</h2>
+    
+    <div class="info">
+      <strong>CPF:</strong> ${formatarCPFParaExibicao(colaborador.cpf)}<br>
+      <small>O CPF não pode ser alterado</small>
+    </div>
+    
+    <form id="formEdicao">
+      <input type="hidden" id="cpf" value="${colaborador.cpf}">
+      
+      <label>Nome Completo</label>
+      <input type="text" id="nome_completo" value="${colaborador.nome_completo || ''}" required>
+      
+      <label>Email</label>
+      <input type="email" id="email" value="${colaborador.email || ''}" placeholder="email@empresa.com">
+      
+      <label>Telefone</label>
+      <input type="text" id="telefone" value="${colaborador.telefone || ''}" placeholder="(00) 00000-0000">
+      
+      <label>Cargo</label>
+      <input type="text" id="cargo" value="${colaborador.cargo || ''}" placeholder="Ex: Analista, Gerente">
+      
+      <label>Departamento</label>
+      <select id="departamento">
+        <option value="">Selecione...</option>
+        <option value="Comercial" ${colaborador.departamento === 'Comercial' ? 'selected' : ''}>Comercial</option>
+        <option value="RH" ${colaborador.departamento === 'RH' ? 'selected' : ''}>RH</option>
+        <option value="Financeiro" ${colaborador.departamento === 'Financeiro' ? 'selected' : ''}>Financeiro</option>
+        <option value="Vendas" ${colaborador.departamento === 'Vendas' ? 'selected' : ''}>Vendas</option>
+        <option value="TI" ${colaborador.departamento === 'TI' ? 'selected' : ''}>TI</option>
+        <option value="Operações" ${colaborador.departamento === 'Operações' ? 'selected' : ''}>Operações</option>
+      </select>
+      
+      <label>Local de Trabalho</label>
+      <input type="text" id="local_trabalho" value="${colaborador.local_trabalho || ''}" placeholder="Ex: Matriz, Filial SP">
+      
+      <label>Cidade</label>
+      <input type="text" id="cidade" value="${colaborador.cidade || ''}" placeholder="Ex: São Paulo">
+      
+      <label>Data de Admissão</label>
+      <input type="date" id="data_admissao" value="${colaborador.data_admissao || ''}">
+      
+      <label>Status</label>
+      <select id="status">
+        <option value="ativo" ${colaborador.status === 'ativo' ? 'selected' : ''}>Ativo</option>
+        <option value="inativo" ${colaborador.status === 'inativo' ? 'selected' : ''}>Inativo</option>
+        <option value="ferias" ${colaborador.status === 'ferias' ? 'selected' : ''}>Férias</option>
+        <option value="afastado" ${colaborador.status === 'afastado' ? 'selected' : ''}>Afastado</option>
+      </select>
+      
+      <div style="margin-top: 20px;">
+        <button type="submit">✅ Salvar Alterações</button>
+        <button type="button" onclick="google.script.host.close()">Cancelar</button>
+      </div>
+    </form>
+    
+    <div id="mensagem" style="margin-top: 20px; padding: 10px; display: none;"></div>
+    
+    <script>
+      // Formatar telefone enquanto digita
+      document.getElementById('telefone').addEventListener('input', function(e) {
+        let value = e.target.value.replace(/\\D/g, '');
+        if (value.length <= 11) {
+          value = value.replace(/(\\d{2})(\\d)/, '($1) $2');
+          value = value.replace(/(\\d{5})(\\d)/, '$1-$2');
+          e.target.value = value;
+        }
+      });
+      
+      // Enviar formulário
+      document.getElementById('formEdicao').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const dadosAtualizados = {
+          nome_completo: document.getElementById('nome_completo').value,
+          email: document.getElementById('email').value,
+          telefone: document.getElementById('telefone').value.replace(/\\D/g, ''),
+          cargo: document.getElementById('cargo').value,
+          departamento: document.getElementById('departamento').value,
+          local_trabalho: document.getElementById('local_trabalho').value,
+          cidade: document.getElementById('cidade').value,
+          data_admissao: document.getElementById('data_admissao').value,
+          status: document.getElementById('status').value
+        };
+        
+        const cpf = document.getElementById('cpf').value;
+        
+        mostrarMensagem('⏳ Salvando alterações...', 'info');
+        
+        google.script.run
+          .withSuccessHandler(function(resultado) {
+            if (resultado.success) {
+              mostrarMensagem('✅ Colaborador atualizado com sucesso!', 'success');
+              setTimeout(function() {
+                google.script.host.close();
+              }, 1500);
+            } else {
+              mostrarMensagem('❌ Erro: ' + resultado.error, 'error');
+            }
+          })
+          .withFailureHandler(function(erro) {
+            mostrarMensagem('❌ Erro ao salvar: ' + erro.message, 'error');
+          })
+          .atualizarColaboradorAPI(cpf, dadosAtualizados);
+      });
+      
+      function mostrarMensagem(texto, tipo) {
+        const div = document.getElementById('mensagem');
+        div.style.display = 'block';
+        div.innerHTML = texto;
+        
+        if (tipo === 'success') {
+          div.style.background = '#d4edda';
+          div.style.color = '#155724';
+          div.style.border = '1px solid #c3e6cb';
+        } else if (tipo === 'error') {
+          div.style.background = '#f8d7da';
+          div.style.color = '#721c24';
+          div.style.border = '1px solid #f5c6cb';
+        } else {
+          div.style.background = '#d1ecf1';
+          div.style.color = '#0c5460';
+          div.style.border = '1px solid #bee5eb';
+        }
+      }
+    </script>
+  `).setWidth(500).setHeight(700);
+  
+  SpreadsheetApp.getUi().showModalDialog(html, 'Editar Colaborador');
+}
+
+function atualizarColaboradorAPI(cpf, dadosAtualizados) {
+  try {
+    const url = CONFIG.API_URL + '/colaboradores/' + cpf;
+    const options = {
+      method: 'put',
+      contentType: 'application/json',
+      payload: JSON.stringify(dadosAtualizados),
+      muteHttpExceptions: true
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const resultado = JSON.parse(response.getContentText());
+    
+    if (resultado.success) {
+      // Atualizar lista de colaboradores
+      buscarColaboradoresAPI({});
+      return { success: true };
+    } else {
+      return { success: false, error: resultado.error };
+    }
+  } catch (erro) {
+    Logger.log('Erro ao atualizar colaborador:', erro);
+    return { success: false, error: erro.message };
+  }
+}
+
+function excluirSelecionados() {
+  const ui = SpreadsheetApp.getUi();
+  
+  const cpfs = obterCPFsSelecionados();
+  if (cpfs.length === 0) {
+    ui.alert('⚠️ Nenhum colaborador selecionado', 
+      'Marque os checkboxes dos colaboradores que deseja excluir.', 
+      ui.ButtonSet.OK);
+    return;
+  }
+  
+  const confirmacao = ui.alert(
+    '⚠️ Confirmar Exclusão',
+    `Deseja realmente excluir ${cpfs.length} colaborador(es)?\n\nEsta ação não pode ser desfeita!`,
+    ui.ButtonSet.YES_NO
+  );
+  
+  if (confirmacao !== ui.Button.YES) {
+    return;
+  }
+  
+  try {
+    let sucessos = 0;
+    let erros = 0;
+    
+    cpfs.forEach(cpf => {
+      try {
+        const url = CONFIG.API_URL + '/colaboradores/' + cpf;
+        const options = {
+          method: 'delete',
+          muteHttpExceptions: true
+        };
+        
+        const response = UrlFetchApp.fetch(url, options);
+        const resultado = JSON.parse(response.getContentText());
+        
+        if (resultado.success) {
+          sucessos++;
+        } else {
+          erros++;
+        }
+      } catch (erro) {
+        erros++;
+        Logger.log('Erro ao excluir CPF ' + cpf + ':', erro);
+      }
+    });
+    
+    // Atualizar lista
+    buscarColaboradoresAPI({});
+    
+    ui.alert('Exclusão Concluída', 
+      `✅ ${sucessos} colaborador(es) excluído(s)\n❌ ${erros} erro(s)`, 
+      ui.ButtonSet.OK);
+      
+  } catch (erro) {
+    ui.alert('❌ Erro', 'Erro ao excluir colaboradores: ' + erro.message, ui.ButtonSet.OK);
+  }
+}

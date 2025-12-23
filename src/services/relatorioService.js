@@ -136,7 +136,6 @@ class RelatorioService {
 
         const dados = colaboradores.map(c => {
             const v = variaveis.find(vr => vr.cpf === c.cpf) || {};
-            const v = variaveis.find(vr => vr.cpf === c.cpf) || {};
             return {
                 colaborador_id: c.id, // Adicionado
                 cpf: c.cpf,

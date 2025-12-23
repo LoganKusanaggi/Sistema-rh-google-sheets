@@ -194,12 +194,15 @@ const colaboradorController = {
       }
 
       const colaboradorId = updates.id; // Guardar ID
+      const motivoAlteracao = updates.motivo_alteracao; // Salvar motivo antes de deletar
 
       // Remove campos que não podem ser alterados no update direto
       delete updates.cpf;
       delete updates.id;
       delete updates.criado_em;
-      delete updates.motivo_alteracao; // Salvo apenas no histórico
+      delete updates.motivo_alteracao;
+
+      console.log('DEBUG UPDATE - Payload:', JSON.stringify(updates)); // Log payload
 
       const { data, error } = await supabase
         .from('colaboradores')
@@ -208,7 +211,12 @@ const colaboradorController = {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('DEBUG UPDATE - Error:', error);
+        throw error;
+      }
+
+      console.log('DEBUG UPDATE - Data Returned:', JSON.stringify(data));
 
       // Registrar histórico
       if (alterouSalario && colaboradorId) {
@@ -216,9 +224,11 @@ const colaboradorController = {
           colaborador_id: colaboradorId,
           salario_anterior: salarioAntigo,
           salario_novo: parseFloat(updates.salario_base),
-          motivo: updates.motivo_alteracao || 'Atualização Cadastral'
+          motivo: motivoAlteracao || 'Atualização Cadastral'
         });
       }
+
+
 
       res.json({
         success: true,

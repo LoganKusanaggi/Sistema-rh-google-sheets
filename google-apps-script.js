@@ -2070,13 +2070,23 @@ function listarHistoricoModal() {
       }
       
       function carregarSnapshot(id, tipo) {
-        if(!confirm('Deseja carregar esta versão antiga?\\nIsso criará uma nova aba de "Lançamento" com os dados recuperados para correção.')) return;
+        // Agora a confirmação é feita no Backend (Modal do Sheets)
         
-        document.getElementById('content').innerHTML = '<div class="loading">⏳ Recuperando e gerando planilha... Aguarde...</div>';
+        document.getElementById('content').innerHTML = '<div class="loading">⏳ Processando solicitação... Verifique o Google Sheets.</div>';
         
         google.script.run
-            .withSuccessHandler(() => google.script.host.close())
-            .withFailureHandler(err => alert('Erro: ' + err.message))
+            .withSuccessHandler((res) => {
+                 if(res && res.cancelado) {
+                     // Recarrega a lista se cancelou
+                     carregar();
+                 } else {
+                     google.script.host.close();
+                 }
+            })
+            .withFailureHandler(err => {
+                alert('Erro: ' + err.message);
+                carregar();
+            })
             .carregarSnapshotGAS(id, tipo);
       }
       
@@ -2104,6 +2114,17 @@ function buscarHistoricoAPI() {
 }
 
 function carregarSnapshotGAS(id, tipo) {
+    const ui = SpreadsheetApp.getUi();
+    const resp = ui.alert(
+        '📂 Carregar Histórico',
+        'Deseja carregar esta versão antiga?\n\nIsso criará uma nova aba de "Lançamento" com os dados recuperados para correção.',
+        ui.ButtonSet.YES_NO
+    );
+
+    if (resp == ui.Button.NO) {
+        return { cancelado: true };
+    }
+
     // 1. Buscar detalhes
     const url = CONFIG.API_URL + '/relatorios/historico/' + id;
     const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });

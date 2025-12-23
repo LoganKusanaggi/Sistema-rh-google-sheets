@@ -60,7 +60,8 @@ const relatoriosController = {
                     // 2. Salvar os itens (linhas)
                     const itensParaSalvar = resultado.dados.map(linha => ({
                         relatorio_id: relatorioId,
-                        cpf: linha.cpf || null, // Se tiver CPF na linha
+                        colaborador_id: linha.colaborador_id || null, // Novo campo
+                        cpf: linha.cpf || null,
                         nome_colaborador: linha.nome_completo || linha.nome,
                         dados_snapshot: linha
                     }));

@@ -461,6 +461,7 @@ const folhaController = {
                     // 2. Salvar os itens (Snapshot imutável)
                     const itensParaSalvar = folhasFormatadas.map(linha => ({
                         relatorio_id: relCriado.id,
+                        colaborador_id: linha.colaborador_id, // Já existe em folhasFormatadas (linha 400)
                         cpf: linha.cpf,
                         nome_colaborador: linha.nome_colaborador,
                         dados_snapshot: linha

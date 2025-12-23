@@ -199,6 +199,7 @@ const colaboradorController = {
       delete updates.cpf;
       delete updates.id;
       delete updates.criado_em;
+      delete updates.motivo_alteracao; // Salvo apenas no histórico
 
       const { data, error } = await supabase
         .from('colaboradores')

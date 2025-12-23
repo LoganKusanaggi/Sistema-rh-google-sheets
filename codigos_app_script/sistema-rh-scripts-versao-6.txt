@@ -43,8 +43,10 @@ function onOpen() {
             .addSeparator()
             .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
             .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
+            .addSeparator()
             .addItem('📊 Lançar Variável', 'lancarVariavel')
             .addItem('🚀 Enviar Variável', 'enviarVariavelParaAPI')
+            .addSeparator()
             .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos')
             .addItem('🚀 Enviar Apontamentos', 'enviarApontamentosParaAPI'))
         .addSeparator()
@@ -55,8 +57,6 @@ function onOpen() {
             .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
             .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros'))
         .addSeparator()
-        .addSeparator()
-        .addItem('📜 Histórico de Versões', 'listarHistoricoModal') // <--- NOVO
         .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
         .addItem('⚙️ Configurações', 'abrirConfiguracoes')
         .addToUi();
@@ -222,8 +222,7 @@ function atualizarAbaColaboradores(colaboradores) {
     sheet.setRowHeight(4, 5);
 
     // LINHA 5: Cabeçalhos
-    // LINHA 5: Cabeçalhos
-    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Status', 'Data Admissão']];
+    const headers = [['☑️', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Status', 'Data Admissão']];
     sheet.getRange(5, 1, 1, 7).setValues(headers);
     sheet.getRange(5, 1, 1, 7)
         .setFontWeight('bold')
@@ -240,12 +239,7 @@ function atualizarAbaColaboradores(colaboradores) {
     sheet.setColumnWidth(6, 100); // Status
     sheet.setColumnWidth(7, 110); // Data
 
-    sheet.setColumnWidth(7, 110); // Data
-
     sheet.setFrozenRows(5);
-
-    // Checkbox "Selecionar Todos" (A5)
-    sheet.getRange('A5').insertCheckboxes();
 
     // 3. INSERIR DADOS (LINHA 6+)
     if (colaboradores.length > 0) {
@@ -630,7 +624,7 @@ function lancarFolha() {
     criarPlanilhaLancamentoFolha(cpfs, periodo);
 }
 
-function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
+function criarPlanilhaLancamentoFolha(cpfs, periodo) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`; // Ex: Lançamento Folha Jan-2025
@@ -667,21 +661,13 @@ function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
     ];
 
     // Montar linhas
-    // Montar linhas
     const linhas = cpfs.map(cpf => {
         const nome = mapNomes[cpf] || 'Não encontrado';
-        let d = {};
-        // Se for recuperação, pega o primeiro item do array (Folha é único por CPF)
-        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) d = dadosMap[cpf][0];
-
-        // Se tiver dados, usa. Se não, zero.
         return [
             formatarCPFParaExibicao(cpf), nome, periodo.mes, periodo.ano,
-            d.salario_base || 0, d.horas_extras || 0, d.adicional_noturno || 0, d.insalubridade || 0, d.periculosidade || 0, d.comissoes || 0, d.gratificacoes || 0, d.outros_proventos || 0,
-            d.inss || 0, d.irrf || 0, d.vale_transporte || 0, d.vale_refeicao || 0, d.plano_saude || 0, d.outros_descontos || 0,
-            d.status_pagamento || 'pendente',
-            d.data_pagamento ? d.data_pagamento.substring(0, 10) : '',
-            d.observacoes || ''
+            0, 0, 0, 0, 0, 0, 0, 0, // Proventos
+            0, 0, 0, 0, 0, 0, // Descontos
+            'pendente', '', ''
         ];
     });
 
@@ -694,13 +680,6 @@ function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
     // Formatação
     sheet.setColumnWidth(2, 200); // Nome
     sheet.getRange(2, 5, linhas.length, 14).setNumberFormat('#,##0.00'); // Moeda
-
-    // Validação Status
-    const ruleStatus = SpreadsheetApp.newDataValidation()
-        .requireValueInList(['pendente', 'pago'], true)
-        .setAllowInvalid(false)
-        .build();
-    sheet.getRange(2, 19, linhas.length, 1).setDataValidation(ruleStatus);
 
     // Travar Colunas CPF/Nome
     sheet.setFrozenColumns(2);
@@ -776,12 +755,6 @@ function enviarFolhaParaAPI() {
 
         if (resultado.success) {
             ui.alert('✅ Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
-
-            // Perguntar se deseja excluir
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento para manter a planilha organizada?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
-            }
         } else {
             throw new Error(resultado.error);
         }
@@ -836,7 +809,7 @@ function lancarBeneficios() {
     criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos);
 }
 
-function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = null) {
+function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const nomeAba = `Lançamento Benefícios ${meses[periodo.mes - 1]}-${periodo.ano}`;
@@ -943,23 +916,13 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
         const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '' };
         const seq = String(index + 1).padStart(4, '0');
 
-        let valAlim = sheet.getRange('C10').getValue();
-        let valTransp = sheet.getRange('C6').getValue();
-
-        if (dadosMap && dadosMap[cpf]) {
-            const alim = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_alimentacao');
-            const transp = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_transporte');
-            valAlim = alim ? alim.valor : 0;
-            valTransp = transp ? transp.valor : 0;
-        }
-
         return [
             seq,
             d.nome,
             d.cidade,
             '', // Férias
-            valAlim,
-            valTransp
+            sheet.getRange('C10').getValue(), // Alimentação (Valor Total)
+            sheet.getRange('C6').getValue()   // Transporte (Valor Fixo)
         ];
     });
 
@@ -1058,10 +1021,6 @@ function enviarBeneficiosParaAPI() {
 
         if (res.success) {
             ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
-            }
         } else {
             throw new Error(res.error);
         }
@@ -1087,7 +1046,7 @@ function lancarVariavel() {
     criarPlanilhaVariavel(cpfs, periodo);
 }
 
-function criarPlanilhaVariavel(cpfs, periodo, dadosMap = null) {
+function criarPlanilhaVariavel(cpfs, periodo) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const nomeAba = `Lançamento Variável ${meses[periodo.mes - 1]}-${periodo.ano}`;
@@ -1127,18 +1086,14 @@ function criarPlanilhaVariavel(cpfs, periodo, dadosMap = null) {
 
     const linhas = cpfs.map(cpf => {
         const d = mapDados[cpf] || { nome: 'Não encontrado', cargo: '-' };
-
-        let item = {};
-        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) item = dadosMap[cpf][0];
-
         return [
             formatarCPFParaExibicao(cpf),
             d.nome,
             d.cargo,
-            item.tipo_variavel || 'comissao',
-            item.valor || 0.00,
-            item.data_referencia ? item.data_referencia.substring(0, 10) : dataPadrao,
-            item.observacoes || ''
+            'comissao', // Padrão
+            0.00,
+            dataPadrao,
+            ''
         ];
     });
 
@@ -1269,10 +1224,6 @@ function enviarVariavelParaAPI() {
 
         if (res.success) {
             ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
-            }
         } else {
             throw new Error(res.error);
         }
@@ -1294,7 +1245,7 @@ function lancarApontamentos() {
     criarPlanilhaLancamentoApontamentos(cpfs, periodo);
 }
 
-function criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap = null) {
+function criarPlanilhaLancamentoApontamentos(cpfs, periodo) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const nomeAba = `Lançamento Apontamentos ${meses[periodo.mes - 1]}-${periodo.ano}`;
@@ -1333,34 +1284,15 @@ function criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap = null) {
     // Decisão: Gerar uma linha com a data atual (ou dia 1 do mês) como sugestão.
     const dataPadrao = Utilities.formatDate(new Date(periodo.ano, periodo.mes - 1, 1), Session.getScriptTimeZone(), 'yyyy-MM-dd');
 
-    const linhas = [];
-    cpfs.forEach(cpf => {
+    const linhas = cpfs.map(cpf => {
         const nome = mapNomes[cpf] || 'Não encontrado';
-
-        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) {
-            // Se tem histórico, cria uma linha para cada apontamento
-            dadosMap[cpf].forEach(item => {
-                linhas.push([
-                    formatarCPFParaExibicao(cpf), nome,
-                    item.data_apontamento ? item.data_apontamento.substring(0, 10) : dataPadrao,
-                    item.tipo_apontamento || 'presenca',
-                    item.hora_entrada || '08:00', item.hora_saida || '17:00',
-                    item.hora_inicio_intervalo || '12:00', item.hora_fim_intervalo || '13:00',
-                    item.horas_trabalhadas || 8, item.horas_extras || 0, item.horas_noturnas || 0,
-                    item.falta ? 'Sim' : 'Não', item.atraso_minutos || 0, item.saida_antecipada_minutos || 0,
-                    item.justificativa || '', item.atestado ? 'Sim' : 'Não', item.status || 'pendente', item.observacoes || ''
-                ]);
-            });
-        } else {
-            // Default
-            linhas.push([
-                formatarCPFParaExibicao(cpf), nome, dataPadrao, 'presenca',
-                '08:00', '17:00', '12:00', '13:00',
-                8, 0, 0,
-                'Não', 0, 0,
-                '', 'Não', 'pendente', ''
-            ]);
-        }
+        return [
+            formatarCPFParaExibicao(cpf), nome, dataPadrao, 'presenca',
+            '08:00', '17:00', '12:00', '13:00', // Horários padrão
+            8, 0, 0, // Horas
+            'Não', 0, 0, // Ocorrências
+            '', 'Não', 'pendente', ''
+        ];
     });
 
     // Renderizar
@@ -1443,10 +1375,6 @@ function enviarApontamentosParaAPI() {
 
         if (res.success) {
             ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
-            }
         } else {
             throw new Error(res.error);
         }
@@ -2005,238 +1933,4 @@ function excluirSelecionados() {
     } catch (erro) {
         ui.alert('❌ Erro', 'Erro ao excluir colaboradores: ' + erro.message, ui.ButtonSet.OK);
     }
-}
-
-// =====================================================
-// HISTÓRICO DE VERSÕES (SNAPSHOTS)
-// =====================================================
-
-function listarHistoricoModal() {
-    const html = HtmlService.createHtmlOutput(`
-    <style>
-      body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; color: #333; }
-      h2 { color: #1a73e8; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-      .loading { text-align: center; color: #666; margin-top: 20px; }
-      table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
-      th { text-align: left; background: #f8f9fa; padding: 10px; border-bottom: 2px solid #dee2e6; color: #495057; }
-      td { padding: 10px; border-bottom: 1px solid #dee2e6; vertical-align: middle; }
-      tr:hover { background-color: #f1f3f4; }
-      .badge { padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
-      .badge-folha { background: #e8f0fe; color: #1967d2; }
-      .badge-beneficios { background: #fce8e6; color: #c5221f; }
-      .badge-variavel { background: #e6f4ea; color: #137333; }
-      .badge-apontamentos { background: #fef7e0; color: #ea8600; }
-      button { background: #fff; border: 1px solid #dadce0; color: #1a73e8; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: 500; transition: all 0.2s; }
-      button:hover { background: #1a73e8; color: #fff; border-color: #1a73e8; }
-      button.load { color: #137333; border-color: #ceead6; }
-      button.load:hover { background: #137333; color: white; border-color: #137333; }
-    </style>
-    
-    <h2>📜 Histórico de Envios</h2>
-    <div id="content" class="loading">Carregando histórico...</div>
-    
-    <script>
-      function carregar() {
-        google.script.run
-          .withSuccessHandler(renderizar)
-          .withFailureHandler(err => document.getElementById('content').innerHTML = 'Erro: ' + err.message)
-          .buscarHistoricoAPI();
-      }
-      
-      function renderizar(dados) {
-        if (!dados || dados.length === 0) {
-          document.getElementById('content').innerHTML = '<p>Nenhum histórico encontrado.</p>';
-          return;
-        }
-        
-        let html = '<table><thead><tr><th>Data</th><th>Tipo</th><th>Ref</th><th>Ação</th></tr></thead><tbody>';
-        
-        dados.forEach(item => {
-          const data = new Date(item.created_at).toLocaleString('pt-BR');
-          const tipoClass = 'badge-' + item.tipo;
-          const mes = item.mes_referencia ? String(item.mes_referencia).padStart(2,'0') : '--';
-          const ano = item.ano_referencia || '----';
-          
-          html += '<tr>';
-          html += '<td>' + data + '</td>';
-          html += '<td><span class="badge ' + tipoClass + '">' + item.tipo + '</span></td>';
-          html += '<td>' + mes + '/' + ano + '</td>';
-          html += '<td><button class="load" onclick="carregarSnapshot(\\'' + item.id + '\\', \\'' + item.tipo + '\\')">📂 Abrir</button></td>';
-          html += '</tr>';
-        });
-        
-        html += '</tbody></table>';
-        document.getElementById('content').innerHTML = html;
-      }
-      
-      function carregarSnapshot(id, tipo) {
-        if(!confirm('Deseja carregar esta versão antiga?\\nIsso criará uma nova aba de "Lançamento" com os dados recuperados para correção.')) return;
-        
-        document.getElementById('content').innerHTML = '<div class="loading">⏳ Recuperando e gerando planilha... Aguarde...</div>';
-        
-        google.script.run
-            .withSuccessHandler(() => google.script.host.close())
-            .withFailureHandler(err => alert('Erro: ' + err.message))
-            .carregarSnapshotGAS(id, tipo);
-      }
-      
-      window.onload = carregar;
-    </script>
-    `).setWidth(600).setHeight(500);
-    SpreadsheetApp.getUi().showModalDialog(html, 'Histórico de Versões');
-}
-
-function buscarHistoricoAPI() {
-    try {
-        const url = CONFIG.API_URL + '/relatorios/historico';
-        const options = {
-            method: 'post',
-            contentType: 'application/json',
-            payload: JSON.stringify({ limit: 20 }),
-            muteHttpExceptions: true
-        };
-        const response = UrlFetchApp.fetch(url, options);
-        const res = JSON.parse(response.getContentText());
-        return res.success ? res.historico : [];
-    } catch (e) {
-        throw new Error('Falha na API: ' + e.message);
-    }
-}
-
-function carregarSnapshotGAS(id, tipo) {
-    // 1. Buscar detalhes
-    const url = CONFIG.API_URL + '/relatorios/historico/' + id;
-    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-    const res = JSON.parse(response.getContentText());
-
-    if (!res.success) throw new Error(res.error);
-
-    const header = res.relatorio;
-    const itens = res.itens;
-
-    if (!periodoEhValido(header)) throw new Error('Dados de período inválidos no snapshot.');
-
-    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
-
-    // Obter CPFs do snapshot para recriar as linhas
-    // (Poderíamos usar header.filtros_usados.cpfs, mas relatorios_itens é mais garantido sobre o que foi salvo)
-    const cpfs = itens.map(i => i.cpf).filter(c => c);
-    const dadosMap = {};
-    itens.forEach(i => {
-        if (!dadosMap[i.cpf]) dadosMap[i.cpf] = [];
-        dadosMap[i.cpf].push(i.dados_snapshot);
-    });
-
-    // Switch tipo
-    if (tipo === 'folha') {
-        const nomeAba = `Lançamento Folha ${periodo.mes}-${periodo.ano} (Recup)`;
-        // PRECISO ADAPTAR criarPlanilhaLancamentoFolha PARA ACEITAR DADOS
-        // Por enquanto, vou criar a aba e preencher "manualmente" aqui ou refatorar a função.
-        // Melhor refatorar a função original para aceitar (cpfs, periodo, DADOS_PREENCHIDOS)
-        criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap);
-        SpreadsheetApp.getActiveSpreadsheet().getActiveSheet().setName(nomeAba); // Renomear para evitar conflito
-    } else if (tipo === 'beneficios') {
-        // Benefícios precisa de 'dadosCompletos' (lookup cidade) + 'dadosValores' (snapshot)
-        const dadosCompletos = buscarDadosColaboradores(cpfs);
-        criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap);
-    } else if (tipo === 'variavel') {
-        criarPlanilhaVariavel(cpfs, periodo, dadosMap);
-    } else if (tipo === 'apontamentos') {
-        criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap);
-    }
-
-    SpreadsheetApp.getUi().alert('✅ Versão Recuperada!',
-        `Os dados da versão de ${new Date(header.created_at).toLocaleString()} foram carregados.\n\nFaça as correções e envie novamente (criará uma nova versão).`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function periodoEhValido(h) {
-    return h.mes_referencia && h.ano_referencia;
-}
-
-function onEdit(e) {
-    if (!e) return;
-    const sheet = e.range.getSheet();
-    const name = sheet.getName();
-    const row = e.range.getRow();
-    const col = e.range.getColumn();
-
-    // 1. SELECT ALL (Aba Colaboradores)
-    // Checkbox no cabeçalho (Linha 5, Coluna 1)
-    if (name === CONFIG.ABAS.COLABORADORES && row === 5 && col === 1) {
-        const isChecked = e.range.getValue() === true;
-        selecionarTodosColaboradores(sheet, isChecked);
-    }
-
-    // 2. MÁSCARA INTELIGENTE DE DATA (Abas de Lançamento)
-    if (name.includes('Lançamento') && e.value) {
-        formatarDataInteligente(e);
-    }
-}
-
-function selecionarTodosColaboradores(sheet, checked) {
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 6) return;
-
-    // Coluna 1 (A) da linha 6 até o fim
-    const range = sheet.getRange(6, 1, lastRow - 5, 1);
-
-    // Checkbox precisa de booleano ou "TRUE"/"FALSE"
-    const values = [];
-    for (let i = 0; i < lastRow - 5; i++) {
-        values.push([checked]);
-    }
-    range.setValues(values);
-}
-
-function formatarDataInteligente(e) {
-    const sheet = e.range.getSheet();
-    const col = e.range.getColumn();
-    const header = sheet.getRange(1, col).getValue();
-
-    const termosData = ['data', 'nascimento', 'admissao', 'pagto', 'referência', 'inicio', 'fim', 'entrada', 'saída'];
-    const headerLower = String(header).toLowerCase();
-
-    const ehColunaData = termosData.some(termo => headerLower.includes(termo));
-
-    if (!ehColunaData) return;
-
-    const val = String(e.value).replace(/\D/g, '');
-
-    if (val.length === 6) {
-        // Tenta DDMMAA (Ex: 011225 -> 01/12/2025)
-        const d = parseInt(val.substring(0, 2));
-        const m = parseInt(val.substring(2, 4));
-        const a = parseInt(val.substring(4, 6)); // 25
-
-        // Se Mes > 12, provavelmente é MMAAAA (Ex: 122025)
-        if (m > 12) {
-            const mesFull = parseInt(val.substring(0, 2));
-            const anoFull = parseInt(val.substring(2, 6));
-            if (mesFull >= 1 && mesFull <= 12 && anoFull >= 2000) {
-                dia = '01';
-                mes = val.substring(0, 2);
-                ano = val.substring(2, 6);
-            }
-        } else {
-            // DDMMAA Padrão
-            dia = val.substring(0, 2);
-            mes = val.substring(2, 4);
-            ano = '20' + val.substring(4, 6);
-        }
-    } else if (val.length === 8) {
-        // DDMMAAAA
-        dia = val.substring(0, 2);
-        mes = val.substring(2, 4);
-        ano = val.substring(4, 8);
-    } else {
-        return;
-    }
-
-    if (!dia || parseInt(mes) > 12 || parseInt(mes) === 0 || parseInt(dia) > 31 || parseInt(dia) === 0) {
-        return;
-    }
-
-    const dataFmt = `${dia}/${mes}/${ano}`;
-    e.range.setValue(dataFmt);
 }

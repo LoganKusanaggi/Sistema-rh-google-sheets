@@ -175,6 +175,60 @@ const relatoriosController = {
             message: 'Funcionalidade de exportação em desenvolvimento',
             download_url: null
         });
+    },
+
+    // ===== LISTAR HISTÓRICO =====
+    async listarHistorico(req, res) {
+        try {
+            const { tipo, limit = 50 } = req.body; // ou query params
+
+            let query = supabase
+                .from('relatorios_gerados')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(limit);
+
+            if (tipo) {
+                query = query.eq('tipo', tipo);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+
+            res.json({ success: true, historico: data });
+        } catch (error) {
+            console.error('Erro ao listar histórico:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // ===== OBTER DETALHES DO HISTÓRICO =====
+    async obterHistorico(req, res) {
+        try {
+            const { id } = req.params;
+
+            // Buscar cabeçalho
+            const { data: header, error: errHeader } = await supabase
+                .from('relatorios_gerados')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (errHeader) throw errHeader;
+
+            // Buscar itens
+            const { data: itens, error: errItens } = await supabase
+                .from('relatorios_itens')
+                .select('*')
+                .eq('relatorio_id', id);
+
+            if (errItens) throw errItens;
+
+            res.json({ success: true, relatorio: header, itens: itens });
+        } catch (error) {
+            console.error('Erro ao obter detalhes:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
     }
 };
 

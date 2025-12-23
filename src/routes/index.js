@@ -79,6 +79,10 @@ router.get('/relatorios/tipos', relatoriosController.listarTipos);
 // Exportar relatório
 router.post('/relatorios/exportar', relatoriosController.exportarRelatorio);
 
+// Histórico de Relatórios
+router.post('/relatorios/historico', relatoriosController.listarHistorico);
+router.get('/relatorios/historico/:id', relatoriosController.obterHistorico);
+
 // ===== ROTA DE HEALTH CHECK =====
 router.get('/health', (req, res) => {
     res.json({

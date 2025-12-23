@@ -55,6 +55,7 @@ class RelatorioService {
             const idade = calcularIdade(c.data_nascimento);
 
             return {
+                cpf: c.cpf, // Adicionado CPF para histórico
                 nome_completo: c.nome_completo,
                 local_trabalho: c.local_trabalho,
                 data_admissao: c.data_admissao,
@@ -113,6 +114,7 @@ class RelatorioService {
 
         // Simulando dados baseados na estrutura antiga para não quebrar o template
         const dados = colaboradores.map(c => ({
+            cpf: c.cpf, // Adicionado
             nome_completo: c.nome_completo,
             cidade: c.cidade,
             ferias: '',
@@ -133,6 +135,7 @@ class RelatorioService {
         const dados = colaboradores.map(c => {
             const v = variaveis.find(vr => vr.cpf === c.cpf) || {};
             return {
+                cpf: c.cpf, // Adicionado
                 nome_vendedor: c.nome_completo,
                 caffeine_fat_meta: v.caffeine_fat_meta || 0,
                 caffeine_fat_realizado: v.caffeine_fat_realizado || 0,
@@ -161,6 +164,7 @@ class RelatorioService {
         // Agregação de apontamentos seria necessária aqui, pois a tabela 'apontamentos' é diária
         // Simplificação: apenas retornando estrutura zerada ou somada se houver view
         const dados = colaboradores.map(c => ({
+            cpf: c.cpf, // Adicionado
             tipo_calculo: '11', codigo_folha: c.codigo_folha, nome_completo: c.nome_completo,
             desc_autorizado: 0, reembolso: 0, comissoes: 0, horas_extras_50: 0, horas_extras_100: 0, horas_noturnas: 0, dias_faltas: 0
         }));

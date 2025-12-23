@@ -223,9 +223,9 @@ function atualizarAbaColaboradores(colaboradores) {
 
     // LINHA 5: Cabeçalhos
     // LINHA 5: Cabeçalhos
-    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Status', 'Data Admissão']];
-    sheet.getRange(5, 1, 1, 7).setValues(headers);
-    sheet.getRange(5, 1, 1, 7)
+    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Salário Base', 'Status', 'Data Admissão']];
+    sheet.getRange(5, 1, 1, 8).setValues(headers); // Aumentado para 8 colunas
+    sheet.getRange(5, 1, 1, 8)
         .setFontWeight('bold')
         .setBackground('#e8f0fe')
         .setFontColor('#000000')
@@ -237,10 +237,9 @@ function atualizarAbaColaboradores(colaboradores) {
     sheet.setColumnWidth(3, 250); // Nome
     sheet.setColumnWidth(4, 150); // Cargo
     sheet.setColumnWidth(5, 120); // Depto
-    sheet.setColumnWidth(6, 100); // Status
-    sheet.setColumnWidth(7, 110); // Data
-
-    sheet.setColumnWidth(7, 110); // Data
+    sheet.setColumnWidth(6, 110); // Salário
+    sheet.setColumnWidth(7, 100); // Status
+    sheet.setColumnWidth(8, 110); // Data
 
     sheet.setFrozenRows(5);
 
@@ -277,23 +276,28 @@ function atualizarAbaColaboradores(colaboradores) {
                 }
             }
 
+            // Tratamento Salário
+            const salario = c.salario_base ? Number(c.salario_base) : 0;
+
             return [
                 false, // checkbox
                 formatarCPFParaExibicao(c.cpf),
                 c.nome_completo,
                 c.cargo || '-',
                 c.departamento || '-',
+                salario,
                 c.status,
                 dataAdmissao
             ];
         });
 
         const startRow = 6;
-        sheet.getRange(startRow, 1, dados.length, 7).setValues(dados);
+        sheet.getRange(startRow, 1, dados.length, 8).setValues(dados);
 
         // Formatação
         sheet.getRange(startRow, 1, dados.length, 1).insertCheckboxes();
-        sheet.getRange(startRow, 1, dados.length, 7)
+        sheet.getRange(startRow, 6, dados.length, 1).setNumberFormat('R$ #,##0.00'); // Formatar Salário
+        sheet.getRange(startRow, 1, dados.length, 8)
             .setVerticalAlignment('middle')
             .setBorder(true, true, true, true, true, true);
 
@@ -1596,6 +1600,10 @@ function novoColaboradorModal() {
            <label>Data Admissão</label>
            <input type="date" id="data_admissao">
         </div>
+        <div class="col">
+           <label>Salário Base (R$)</label>
+           <input type="number" step="0.01" id="salario_base" placeholder="0,00">
+        </div>
       </div>
       
       <label>Status</label>
@@ -1653,6 +1661,7 @@ function novoColaboradorModal() {
           cidade: document.getElementById('cidade').value,
           data_nascimento: document.getElementById('data_nascimento').value,
           data_admissao: document.getElementById('data_admissao').value,
+          salario_base: document.getElementById('salario_base').value,
           status: document.getElementById('status').value
         };
         
@@ -1833,6 +1842,17 @@ function mostrarModalEdicao(colaborador) {
       <label>Data de Admissão</label>
       <input type="date" id="data_admissao" value="${colaborador.data_admissao || ''}">
       
+      <div class="row" style="background: #fff3e0; padding: 10px; border: 1px solid #ffe0b2; border-radius: 4px; margin: 10px 0;">
+          <div class="col">
+             <label style="margin-top:0">Salário Base (R$)</label>
+             <input type="number" step="0.01" id="salario_base" value="${colaborador.salario_base || 0}">
+          </div>
+          <div class="col">
+             <label style="margin-top:0">Motivo Alteração</label>
+             <input type="text" id="motivo_alteracao" placeholder="Ex: Promoção, Dissídio" style="font-size: 11px;">
+          </div>
+      </div>
+
       <label>Status</label>
       <select id="status">
         <option value="ativo" ${colaborador.status === 'ativo' ? 'selected' : ''}>Ativo</option>
@@ -1873,6 +1893,8 @@ function mostrarModalEdicao(colaborador) {
           local_trabalho: document.getElementById('local_trabalho').value,
           cidade: document.getElementById('cidade').value,
           data_admissao: document.getElementById('data_admissao').value,
+          salario_base: document.getElementById('salario_base').value,
+          motivo_alteracao: document.getElementById('motivo_alteracao').value,
           status: document.getElementById('status').value
         };
         

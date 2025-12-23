@@ -6,12 +6,12 @@ const supabase = require('../config/supabase');
 const { validarCPF, formatarCPF } = require('../utils/validators');
 
 const colaboradorController = {
-  
+
   // Listar todos os colaboradores
   async listarTodos(req, res) {
     try {
       const { status, departamento } = req.query;
-      
+
       let query = supabase
         .from('colaboradores')
         .select('*')
@@ -83,12 +83,12 @@ const colaboradorController = {
   // Criar novo colaborador
   async criar(req, res) {
     try {
-      const { 
-        cpf, nome_completo, email, telefone, cargo, 
+      const {
+        cpf, nome_completo, email, telefone, cargo,
         departamento, data_admissao, matricula, codigo_folha,
-        local_trabalho, cidade, data_nascimento
+        local_trabalho, cidade, data_nascimento, salario_base // Novo campo
       } = req.body;
-      
+
       const cpfLimpo = formatarCPF(cpf);
 
       if (!validarCPF(cpfLimpo)) {
@@ -105,6 +105,7 @@ const colaboradorController = {
         });
       }
 
+      // 1. Criar o colaborador
       const { data, error } = await supabase
         .from('colaboradores')
         .insert([{
@@ -120,12 +121,23 @@ const colaboradorController = {
           cidade,
           data_nascimento,
           data_admissao,
+          salario_base: salario_base || 0, // Default 0
           status: 'ativo'
         }])
         .select()
         .single();
 
       if (error) throw error;
+
+      // 2. Registrar histórico inicial se houve salário
+      if (salario_base && parseFloat(salario_base) > 0) {
+        await supabase.from('historico_salarios').insert({
+          colaborador_id: data.id,
+          salario_anterior: 0,
+          salario_novo: parseFloat(salario_base),
+          motivo: 'Cadastro Inicial'
+        });
+      }
 
       res.status(201).json({
         success: true,
@@ -134,7 +146,7 @@ const colaboradorController = {
       });
     } catch (error) {
       console.error('Erro ao criar colaborador:', error);
-      
+
       if (error.code === '23505') {
         return res.status(409).json({
           success: false,
@@ -156,7 +168,34 @@ const colaboradorController = {
       const cpfLimpo = formatarCPF(cpf);
       const updates = req.body;
 
-      // Remove campos que não podem ser alterados
+      // Se houver alteração de salário, precisamos tratar especial
+      let salarioAntigo = null;
+      let alterouSalario = false;
+
+      if (updates.salario_base !== undefined) {
+        // Buscar colaborador atual para comparar
+        const { data: atual } = await supabase
+          .from('colaboradores')
+          .select('id, salario_base')
+          .eq('cpf', cpfLimpo)
+          .single();
+
+        if (atual) {
+          const novo = parseFloat(updates.salario_base);
+          const antigo = parseFloat(atual.salario_base || 0);
+
+          if (novo !== antigo) {
+            alterouSalario = true;
+            salarioAntigo = antigo;
+            // O ID é necessário para o histórico
+            updates.id = atual.id; // Hack temporário para usar abaixo, mas removemos antes do update
+          }
+        }
+      }
+
+      const colaboradorId = updates.id; // Guardar ID
+
+      // Remove campos que não podem ser alterados no update direto
       delete updates.cpf;
       delete updates.id;
       delete updates.criado_em;
@@ -169,6 +208,16 @@ const colaboradorController = {
         .single();
 
       if (error) throw error;
+
+      // Registrar histórico
+      if (alterouSalario && colaboradorId) {
+        await supabase.from('historico_salarios').insert({
+          colaborador_id: colaboradorId,
+          salario_anterior: salarioAntigo,
+          salario_novo: parseFloat(updates.salario_base),
+          motivo: updates.motivo_alteracao || 'Atualização Cadastral'
+        });
+      }
 
       res.json({
         success: true,

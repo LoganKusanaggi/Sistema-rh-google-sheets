@@ -43,8 +43,10 @@ function onOpen() {
             .addSeparator()
             .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
             .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
+            .addSeparator()
             .addItem('📊 Lançar Variável', 'lancarVariavel')
             .addItem('🚀 Enviar Variável', 'enviarVariavelParaAPI')
+            .addSeparator()
             .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos')
             .addItem('🚀 Enviar Apontamentos', 'enviarApontamentosParaAPI'))
         .addSeparator()
@@ -1808,6 +1810,7 @@ function mostrarModalEdicao(colaborador) {
     </div>
     
     <form id="formEdicao">
+      <input type="hidden" id="colaborador_id" value="${colaborador.id}">
       <input type="hidden" id="cpf" value="${colaborador.cpf}">
       
       <label>Nome Completo</label>
@@ -1852,6 +1855,51 @@ function mostrarModalEdicao(colaborador) {
              <input type="text" id="motivo_alteracao" placeholder="Ex: Promoção, Dissídio" style="font-size: 11px;">
           </div>
       </div>
+
+      <!-- SEÇÃO PLANOS -->
+      <fieldset style="border: 1px solid #ccc; padding: 10px; border-radius: 4px; margin-top: 15px;">
+        <legend style="font-weight:bold; color:#1a73e8;">🏥 Planos de Saúde e Odonto</legend>
+        
+        <div class="row">
+          <div class="col" style="flex: 2;">
+            <label>Plano de Saúde</label>
+            <select id="plano_saude"><option value="">Carregando...</option></select>
+          </div>
+          <div class="col" style="flex: 1;">
+            <label>Cteirinha (Matrícula Titular)</label>
+            <input type="text" id="matricula_saude" placeholder="Ex: 95445982">
+          </div>
+        </div>
+        
+        <label>Plano Odontológico (Opcional)</label>
+        <select id="plano_odonto"><option value="">Carregando...</option></select>
+        
+        <hr style="margin: 15px 0; border: 0; border-top: 1px solid #eee;">
+        
+        <label style="font-weight:bold;">👨‍👩‍👧‍👦 Dependentes</label>
+        <div id="lista_dependentes" style="margin-bottom: 10px; font-size: 12px;">Carregando...</div>
+        
+        <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid #ddd;">
+          <label style="margin-top:0">Adicionar Dependente:</label>
+          <div class="row">
+            <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex: 2;">
+            <input type="text" id="dep_cpf" placeholder="CPF" style="flex: 1;">
+            <input type="date" id="dep_nasc" style="flex: 1;">
+          </div>
+          <div class="row">
+            <select id="dep_parentesco" style="flex: 1;">
+              <option value="">Parentesco...</option>
+              <option value="Filho(a)">Filho(a)</option>
+              <option value="Cônjuge">Cônjuge</option>
+              <option value="Pai/Mãe">Pai/Mãe</option>
+            </select>
+            <input type="text" id="dep_matricula" placeholder="Matrícula Dep." style="flex: 1;">
+            <button type="button" onclick="adicionarDependenteUI()" style="background:#28a745; padding: 5px 10px;">+</button>
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="row" style="background: #fff3e0; padding: 10px; border: 1px solid #ffe0b2; border-radius: 4px; margin: 10px 0;">
 
       <label>Status</label>
       <select id="status">
@@ -1905,10 +1953,68 @@ function mostrarModalEdicao(colaborador) {
         google.script.run
           .withSuccessHandler(function(resultado) {
             if (resultado.success) {
-              mostrarMensagem('✅ Colaborador atualizado com sucesso!', 'success');
-              setTimeout(function() {
-                google.script.host.close();
-              }, 1500);
+              // SAVE PLANS
+              mostrarMensagem('⏳ Salvando planos...', 'info');
+              
+              const cid = document.getElementById('colaborador_id').value;
+              const pSaude = document.getElementById('plano_saude').value;
+              const pOdonto = document.getElementById('plano_odonto').value;
+              const matriculaSaude = document.getElementById('matricula_saude').value;
+              
+              const finalizar = function() {
+                 mostrarMensagem('✅ Dados salvos com sucesso!', 'success');
+                 setTimeout(() => google.script.host.close(), 1500);
+              };
+
+              const salvarOdonto = function() {
+                  if (pOdonto) {
+                      // Odonto geralmente não tem matrícula separada neste contexto simplificado, ou usa a mesma.
+                      // Passamos null ou trataremos no futuro se o usuário pedir.
+                      google.script.run.withSuccessHandler(finalizar)
+                      .salvarPlanoColaboradorAPI(cid, pOdonto, null);
+                  } else {
+                      finalizar();
+                  }
+              };
+
+              if (pSaude) {
+                  google.script.run.withSuccessHandler(salvarOdonto)
+                  .salvarPlanoColaboradorAPI(cid, pSaude, matriculaSaude);
+              } else {
+                  salvarOdonto();
+              }
+              
+              const finalizar = function() {
+                  mostrarMensagem('✅ Dados salvos com sucesso!', 'success');
+                  setTimeout(function() { google.script.host.close(); }, 1500);
+              };
+
+              
+              // 1. Salvar Plano de Saúde (com matrícula Titular)
+              const pSaude = document.getElementById('plano_saude').value;
+              const matriculaSaude = document.getElementById('matricula_saude').value;
+              
+              const salvarOdonto = () => {
+                 const pOdonto = document.getElementById('plano_odonto').value;
+                 if (pOdonto) {
+                     google.script.run
+                     .salvarPlanoColaboradorAPI(cid, pOdonto, null); 
+                     // Obs: Odonto geralmente usa a mesma matricula ou independente? 
+                     // Por simplicidade, assume-se que matricula é atrelada ao Saúde ou genérica na tabela colaboradores_planos.
+                     // Se for necessário matricula especifica para odonto, precisaria de outro campo.
+                     // O usuario pediu "Matricula" (singular) no prompt. Assumo Saude.
+                 }
+                 mostrarMensagem('✅ Dados salvos com sucesso!', 'success');
+                 setTimeout(() => google.script.host.close(), 1500);
+              };
+
+              if (pSaude) {
+                  google.script.run.withSuccessHandler(salvarOdonto)
+                  .salvarPlanoColaboradorAPI(cid, pSaude, matriculaSaude); // Passando matricula em vez de qtd deps
+              } else {
+                  salvarOdonto();
+              }
+              
             } else {
               mostrarMensagem('❌ Erro: ' + resultado.error, 'error');
             }
@@ -1937,6 +2043,188 @@ function mostrarModalEdicao(colaborador) {
           div.style.color = '#0c5460';
           div.style.border = '1px solid #bee5eb';
         }
+      }
+      // 1. Carregar Planos ao Abrir
+      window.onload = function() {
+          carregarListasPlanos(); 
+      };
+
+      let listaPlanosCache = [];
+
+      function carregarListasPlanos() {
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success) {
+                  listaPlanosCache = res.data;
+                  popularSelects(res.data);
+                  carregarPlanosDoUsuario();
+              } else {
+                  console.error('Erro ao listar planos:', res.error);
+                  alert('Erro ao carregar planos: ' + res.error); // Alertar usuário
+                  // Remover placeholder para não ficar travado
+                  const selSaude = document.getElementById('plano_saude');
+                  const selOdonto = document.getElementById('plano_odonto');
+                  if(selSaude) selSaude.innerHTML = '<option value="">Erro ao carregar</option>';
+                  if(selOdonto) selOdonto.innerHTML = '<option value="">Erro ao carregar</option>';
+              }
+          }).listarPlanosAPI();
+      }
+
+      function popularSelects(planos) {
+          const selSaude = document.getElementById('plano_saude');
+          const selOdonto = document.getElementById('plano_odonto');
+          
+          selSaude.innerHTML = '<option value="">Sem Plano</option>';
+          selOdonto.innerHTML = '<option value="">Sem Plano</option>';
+          
+          planos.forEach(p => {
+              const opt = document.createElement('option');
+              opt.value = p.id;
+              opt.textContent = p.nome + ' (R$ ' + (p.precos?.[0]?.valor || '?') + ')';
+              
+              if (p.tipo === 'SAUDE') selSaude.appendChild(opt);
+              else if (p.tipo === 'ODONTO') selOdonto.appendChild(opt);
+          });
+      }
+
+      let dependentesCache = [];
+
+      function carregarPlanosDoUsuario() {
+          const id = document.getElementById('colaborador_id').value;
+          if (!id) return;
+
+          // 1. Carregar Planos do Titular
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success && res.data) {
+                  const planosUser = res.data;
+                  // Limpar
+                  document.getElementById('plano_saude').value = "";
+                  document.getElementById('matricula_saude').value = "";
+                  document.getElementById('plano_odonto').value = "";
+
+                  planosUser.forEach(pu => {
+                      if (pu.plano && pu.plano.tipo === 'SAUDE') {
+                          document.getElementById('plano_saude').value = pu.plano_id;
+                          // Preencher matrícula titular
+                          if (pu.matricula) document.getElementById('matricula_saude').value = pu.matricula;
+                      }
+                      if (pu.plano && pu.plano.tipo === 'ODONTO') {
+                          document.getElementById('plano_odonto').value = pu.plano_id;
+                      }
+                  });
+              }
+          }).buscarPlanosColaboradorAPI(id);
+
+          // 2. Carregar Dependentes
+          carregarDependentesUI(id);
+      }
+
+      function carregarDependentesUI(colabId) {
+          document.getElementById('lista_dependentes').innerHTML = 'Carregando...';
+          
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success) {
+                  dependentesCache = res.data;
+                  renderizarDependentes();
+              } else {
+                  document.getElementById('lista_dependentes').innerHTML = 'Erro ao carregar.';
+              }
+          }).listarDependentesAPI(colabId);
+      }
+
+      function renderizarDependentes() {
+          const div = document.getElementById('lista_dependentes');
+          if (dependentesCache.length === 0) {
+              div.innerHTML = '<span style="color:#666;">Nenhum dependente cadastrado.</span>';
+              return;
+          }
+
+          let html = '<table style="width:100%; border-collapse: collapse;">';
+          html += '<tr style="background:#eee; text-align:left;"><th>Nome</th><th>CPF</th><th>Nasc.</th><th>Idade</th><th>Parentesco</th><th>Matrícula</th><th></th></tr>';
+          
+          dependentesCache.forEach(d => {
+              const idade = calcularIdade(d.data_nasc);
+              const dataFmt = d.data_nasc ? new Date(d.data_nasc).toLocaleDateString() : '';
+              html += '<tr>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + d.nome + '</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + (d.cpf || '-') + '</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + dataFmt + '</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + idade + ' anos</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + d.parentesco + '</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px;">' + (d.matricula || '-') + '</td>' +
+                '<td style="border-bottom:1px solid #ddd; padding:4px; text-align:right;">' +
+                  '<span onclick="removerDependenteUI(\'' + d.id + '\')" style="cursor:pointer; color:red;">🗑️</span>' +
+                '</td>' +
+              '</tr>';
+          });
+          html += '</table>';
+          div.innerHTML = html;
+      }
+
+      function calcularIdade(dataNasc) {
+          const hoje = new Date();
+          const nasc = new Date(dataNasc);
+          let idade = hoje.getFullYear() - nasc.getFullYear();
+          const m = hoje.getMonth() - nasc.getMonth();
+          if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) {
+              idade--;
+          }
+          return idade;
+      }
+
+      function adicionarDependenteUI() {
+          const id = document.getElementById('colaborador_id').value;
+          const nome = document.getElementById('dep_nome').value;
+          const cpf = document.getElementById('dep_cpf').value;
+          const nasc = document.getElementById('dep_nasc').value;
+          const parentesco = document.getElementById('dep_parentesco').value;
+          const matricula = document.getElementById('dep_matricula').value;
+
+          if (!nome || !nasc || !parentesco) {
+              alert('Preencha Nome, Data Nasc. e Parentesco!');
+              return;
+          }
+
+          const btn = event.target;
+          btn.textContent = '⏳';
+          btn.disabled = true;
+
+          const novoDep = {
+              nome: nome,
+              cpf: cpf,
+              data_nasc: nasc,
+              parentesco: parentesco,
+              matricula: matricula
+          };
+
+          google.script.run.withSuccessHandler(function(res) {
+              btn.textContent = '+';
+              btn.disabled = false;
+              if (res.success) {
+                  // Limpar campos
+                  document.getElementById('dep_nome').value = '';
+                  document.getElementById('dep_cpf').value = '';
+                  document.getElementById('dep_nasc').value = '';
+                  document.getElementById('dep_matricula').value = '';
+                  
+                  // Recarregar lista
+                  carregarDependentesUI(id);
+              } else {
+                  alert('Erro ao salvar: ' + res.error);
+              }
+          }).adicionarDependenteAPI(id, novoDep);
+      }
+
+      function removerDependenteUI(depId) {
+          if(!confirm('Remover este dependente?')) return;
+          const id = document.getElementById('colaborador_id').value;
+          
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success) {
+                  carregarDependentesUI(id);
+              } else {
+                  alert('Erro ao remover: ' + res.error);
+              }
+          }).removerDependenteAPI(depId);
       }
     </script>
   `).setWidth(500).setHeight(700);
@@ -2026,6 +2314,59 @@ function excluirSelecionados() {
 
     } catch (erro) {
         ui.alert('❌ Erro', 'Erro ao excluir colaboradores: ' + erro.message, ui.ButtonSet.OK);
+    }
+}
+
+
+
+// =====================================================
+// API PROXIES FOR PLANS
+// =====================================================
+
+function listarPlanosAPI() {
+    try {
+        const url = CONFIG.API_URL + '/planos';
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function buscarPlanosColaboradorAPI(id) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/' + id + '/planos';
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function salvarPlanoColaboradorAPI(id, planoId, dependentes) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/' + id + '/planos';
+        const options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ plano_id: planoId, dependente_qtd: dependentes }),
+            muteHttpExceptions: true
+        };
+        const response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function removerPlanoColaboradorAPI(id, planoId) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/' + id + '/planos/' + planoId;
+        const options = { method: 'delete', muteHttpExceptions: true };
+        const response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
     }
 }
 
@@ -2282,4 +2623,48 @@ function formatarDataInteligente(e) {
 
     const dataFmt = `${dia}/${mes}/${ano}`;
     e.range.setValue(dataFmt);
+}
+
+// =====================================================
+// DEPENDENTES API PROXIES
+// =====================================================
+
+function listarDependentesAPI(colaboradorId) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+        const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function adicionarDependenteAPI(colaboradorId, dados) {
+    try {
+        const url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+        const options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(dados),
+            muteHttpExceptions: true
+        };
+        const response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function removerDependenteAPI(dependenteId) {
+    try {
+        const url = CONFIG.API_URL + '/dependentes/' + dependenteId;
+        const options = {
+            method: 'delete',
+            muteHttpExceptions: true
+        };
+        const response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 }

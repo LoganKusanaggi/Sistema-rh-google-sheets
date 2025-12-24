@@ -27,6 +27,7 @@ const relatoriosController = {
                 case 'variavel': resultado = await RelatorioService.gerarVariavel(cpfsFormatados, periodo, opcoes); break;
                 case 'apontamentos': resultado = await RelatorioService.gerarApontamentos(cpfsFormatados, periodo, opcoes); break;
                 case 'seguros': resultado = await RelatorioService.gerarSeguros(cpfsFormatados, opcoes); break;
+                case 'planos': resultado = await RelatorioService.gerarPlanos(cpfsFormatados, periodo, opcoes); break;
                 default: return res.status(400).json({ success: false, error: `Tipo inválido: ${tipo}` });
             }
 
@@ -162,7 +163,8 @@ const relatoriosController = {
             { id: 'beneficios', nome: 'Benefícios Flexíveis' },
             { id: 'variavel', nome: 'Remuneração Variável' },
             { id: 'apontamentos', nome: 'Apontamentos' },
-            { id: 'seguros', nome: 'Seguro de Vida' }
+            { id: 'seguros', nome: 'Seguro de Vida' },
+            { id: 'planos', nome: 'Conferência Planos de Saúde' }
         ];
         res.json({ success: true, tipos });
     },

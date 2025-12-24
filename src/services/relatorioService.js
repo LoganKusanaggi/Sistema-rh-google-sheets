@@ -4,6 +4,7 @@ const BeneficiosTemplate = require('../templates/beneficios.template');
 const VariavelTemplate = require('../templates/variavel.template');
 const ApontamentosTemplate = require('../templates/apontamentos.template');
 const SegurosTemplate = require('../templates/seguros.template');
+const PlanosTemplate = require('../templates/planos.template');
 
 // Função auxiliar para calcular idade
 function calcularIdade(dataNascimento) {
@@ -190,6 +191,110 @@ class RelatorioService {
         });
         const layout = SegurosTemplate.gerar(dados, {}, opcoes);
         return { dados, totais: {}, layout };
+    }
+
+    static async gerarPlanos(cpfs, periodo, opcoes = {}) {
+        const { mes, ano } = periodo;
+
+        // 1. Buscar Dados Globais
+        // Colaboradores
+        const { data: colaboradores } = await supabase
+            .from('colaboradores')
+            .select('*')
+            .in('cpf', cpfs);
+
+        const ids = colaboradores.map(c => c.id);
+
+        // Planos atribuídos (com detalhes do plano)
+        const { data: plansAssignments } = await supabase
+            .from('colaboradores_planos')
+            .select('*, plano:planos(*)')
+            .in('colaborador_id', ids);
+
+        // Dependentes
+        const { data: dependentes } = await supabase
+            .from('dependentes')
+            .select('*')
+            .in('colaborador_id', ids);
+
+        // Preços (Cache full table for lookup)
+        const { data: precos } = await supabase.from('planos_precos').select('*');
+
+        const rows = [];
+        let totalEmpresa = 0;
+        let totalFunc = 0;
+
+        // 2. Processar
+        colaboradores.forEach(colab => {
+            const assignments = plansAssignments.filter(pa => pa.colaborador_id === colab.id);
+            const deps = dependentes.filter(d => d.colaborador_id === colab.id);
+
+            assignments.forEach(assign => {
+                const plano = assign.plano;
+                if (!plano) return;
+
+                // --- TITULAR ---
+                const idadeTit = calcularIdade(colab.data_nascimento);
+                const precoTit = precos.find(p => p.plano_id === plano.id && idadeTit >= p.idade_min && idadeTit <= p.idade_max);
+                const valorTit = precoTit ? precoTit.valor : 0;
+
+                // Regra: Titular paga 20% (Empresa 80%)
+                // Se Odonto, checar se a regra é a mesma. Assumirei que sim baseado no prompt.
+                // Ajuste se necessário.
+                const parteJose = valorTit * 0.20;
+                const parteEmpresa = valorTit * 0.80;
+
+                totalEmpresa += parteEmpresa;
+                totalFunc += parteJose;
+
+                rows.push({
+                    colaborador_id: colab.id,
+                    nome_colaborador: colab.nome_completo,
+                    matricula_plano: assign.matricula || '',
+                    tipo_beneficiario: 'TITULAR',
+                    parentesco: '-',
+                    data_nascimento: colab.data_nascimento,
+                    idade: idadeTit,
+                    nome_plano: plano.nome,
+                    valor_tabela: valorTit,
+                    parte_empresa: parteEmpresa,
+                    parte_colaborador: parteJose
+                });
+
+                // --- DEPENDENTES ---
+                deps.forEach(dep => {
+                    const idadeDep = calcularIdade(dep.data_nasc);
+                    const precoDep = precos.find(p => p.plano_id === plano.id && idadeDep >= p.idade_min && idadeDep <= p.idade_max);
+                    const valorDep = precoDep ? precoDep.valor : 0;
+
+                    // Regra: Dependente paga 100% (Empresa 0%)
+                    const parteJoseDep = valorDep;
+                    const parteEmpresaDep = 0;
+
+                    totalEmpresa += parteEmpresaDep;
+                    totalFunc += parteJoseDep;
+
+                    rows.push({
+                        colaborador_id: colab.id,
+                        nome_colaborador: colab.nome_completo, // Agrupador
+                        matricula_plano: dep.matricula || '', // Matrícula do dependente
+                        tipo_beneficiario: 'DEPENDENTE',
+                        parentesco: dep.parentesco,
+                        data_nascimento: dep.data_nasc, // Note: DB column is data_nasc, UI is data_nasc
+                        idade: idadeDep,
+                        nome_plano: plano.nome,
+                        valor_tabela: valorDep,
+                        parte_empresa: parteEmpresaDep,
+                        parte_colaborador: parteJoseDep
+                    });
+                });
+            });
+        });
+
+        const totais = { total_empresa: totalEmpresa, total_colaborador: totalFunc, total_geral: totalEmpresa + totalFunc };
+        const layout = PlanosTemplate.gerar(rows, totais, periodo);
+
+        return { dados: rows, totais, layout };
     }
 }
 

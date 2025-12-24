@@ -8,6 +8,9 @@ const variavelController = require('../controllers/variavelController');
 const apontamentosController = require('../controllers/apontamentosController');
 const segurosController = require('../controllers/segurosController');
 const relatoriosController = require('../controllers/relatoriosController');
+const planosController = require('../controllers/planosController');
+
+const dependentesRoutes = require('./dependentesRoutes');
 
 // ===== ROTAS DE COLABORADORES =====
 router.get('/colaboradores', colaboradorController.listarTodos);
@@ -16,6 +19,9 @@ router.post('/colaboradores', colaboradorController.criar);
 router.put('/colaboradores/:cpf', colaboradorController.atualizar);
 router.delete('/colaboradores/:cpf', colaboradorController.deletar);
 router.post('/colaboradores/batch', colaboradorController.criarEmLote);
+
+// ===== ROTAS DE DEPENDENTES =====
+router.use('/', dependentesRoutes); // O arquivo de rotas já define os caminhos completos
 
 // NOVO: Busca avançada com filtros
 router.post('/colaboradores/buscar', relatoriosController.buscarComFiltros);
@@ -68,6 +74,12 @@ router.get('/seguros', segurosController.listarTodos);
 router.get('/seguros/:cpf', segurosController.buscarPorCPF);
 router.post('/seguros', segurosController.criar);
 router.put('/seguros/:id', segurosController.atualizar);
+
+// ===== ROTAS DE PLANOS (SAUDE/ODONTO) =====
+router.get('/planos', planosController.listar); // Catálogo
+router.get('/colaboradores/:id/planos', planosController.obterDoColaborador);
+router.post('/colaboradores/:id/planos', planosController.atribuir);
+router.delete('/colaboradores/:id/planos/:planoId', planosController.remover);
 
 // ===== ROTAS DE RELATÓRIOS (NOVO!) =====
 // Gerar relatório genérico

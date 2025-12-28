@@ -1,0 +1,5 @@
+### Testar endpoint de planos
+GET https://sistema-rh-google-sheets.vercel.app/api/planos
+
+### Testar health check
+GET https://sistema-rh-google-sheets.vercel.app/api/health

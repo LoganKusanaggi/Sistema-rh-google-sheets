@@ -1,0 +1,16 @@
+
+INSTRUÇÕES FINAIS DE CORREÇÃO (V3):
+
+1. Abra o arquivo "SISTEMA_RH_FINAL.js" gerado na pasta do projeto.
+2. Copie TODO o conteúdo deste arquivo.
+3. Vá para o editor do Google Apps Script (Extensions > Apps Script).
+4. Apague todo o conteúdo do arquivo "Código.gs".
+5. Cole o novo conteúdo.
+6. Salve.
+
+O QUE FOI CORRIGIDO AGORA:
+- Falha no Carregamento de Dados: A função que busca os dados do colaborador foi blindada para aceitar diferentes formatos de resposta da API (seja `resultado.data`, `resultado.colaborador` ou direto na raiz). Isso deve resolver o problema de campos vindo vazios.
+- Logs de Diagnóstico: Adicionei logs explícitos ("BUSCA COLABORADOR", "BUSCA PLANOS", "PAYLOAD") para que, se algo falhar, você possa ver no menu "Execuções" exatamente o JSON que está trafegando.
+- Normalização de Planos: A função de buscar planos agora também tenta encontrar a lista em `res.planos`, `res.lista` ou `res.data`, prevenindo erros se a API mudar o nome do campo.
+
+Se o salário ainda vier zerado, verifique no log "BUSCA COLABORADOR" como o campo `salario_base` está vindo (se é string, número, ou se tem outro nome).

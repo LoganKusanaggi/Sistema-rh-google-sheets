@@ -100,8 +100,8 @@ module.exports = {
                     .update({
                         plano_id: pid,
                         matricula: matricula || null,
-                        ativo: true,
-                        updated_at: new Date()
+                        ativo: true
+                        // updated_at: new Date() // Column does not exist
                     })
                     .eq('id', slotToReuse.id) // Update by PK
                     .select()

@@ -53,7 +53,7 @@ module.exports = {
     async atribuir(req, res) {
         try {
             const { id } = req.params; // Colaborador ID (UUID)
-            const { plano_id, matricula } = req.body; // Removed dependente_qtd (deprecated in favor of table)
+            const { plano_id, matricula } = req.body;
 
             // Check if plan exists and get its type
             const { data: planoInfo, error: pError } = await supabase
@@ -65,58 +65,60 @@ module.exports = {
             if (pError || !planoInfo) throw new Error('Plano não encontrado');
 
             // 1. Fetch active plans of same type
+            // Changed: Fetch ALL plans of this type to find a slot to recycle (cleaner than Deactivate+Upsert)
             const { data: existingPlans, error: eError } = await supabase
                 .from('colaboradores_planos')
                 .select('id, plano:planos(tipo)')
-                .eq('colaborador_id', id)
-                .eq('ativo', true);
+                .eq('colaborador_id', id);
 
             if (eError) throw eError;
 
             // Robust type comparison
             const targetTipo = (planoInfo.tipo || '').toLowerCase();
 
-            const activePlansOfType = existingPlans.filter(p => {
+            const candidates = existingPlans.filter(p => {
                 const pTipo = (p.plano && p.plano.tipo) ? p.plano.tipo.toLowerCase() : '';
                 return pTipo === targetTipo;
             });
 
-            console.log(`[Atribuir Plano] Desativando ${activePlansOfType.length} planos antigos do tipo ${targetTipo}`);
-
-            // 2. Deactivate ALL active plans of this type
-            for (const p of activePlansOfType) {
-                await supabase.from('colaboradores_planos').update({ ativo: false }).eq('id', p.id);
-            }
+            console.log(`[Atribuir Plano] Encontrados ${candidates.length} slots para o tipo ${targetTipo}`);
 
             const pid = parseInt(plano_id, 10);
+            let operacao = 'insert';
+            let data = null;
 
-            // 3. Check if specific assignment already exists (Active or Inactive)
-            const { data: existingAssignment } = await supabase
-                .from('colaboradores_planos')
-                .select('id')
-                .eq('colaborador_id', id)
-                .eq('plano_id', pid)
-                .single();
+            if (candidates.length > 0) {
+                // RECYCLE STRATEGY: Update the first available slot and delete the rest
+                // This satisfies "Update if exists" and cleans up duplicates at the same time
+                operacao = 'update';
+                const slotToReuse = candidates[0];
+                const trash = candidates.slice(1);
 
-            let data;
-
-            if (existingAssignment) {
-                // Reactivate / Update existing record
+                // Update the chosen slot
                 const { data: updated, error: uError } = await supabase
                     .from('colaboradores_planos')
                     .update({
+                        plano_id: pid,
                         matricula: matricula || null,
                         ativo: true,
                         updated_at: new Date()
                     })
-                    .eq('id', existingAssignment.id)
+                    .eq('id', slotToReuse.id) // Update by PK
                     .select()
                     .single();
 
                 if (uError) throw uError;
                 data = updated;
+
+                // Delete duplicates/history to enforce 1:1 per type if desired
+                if (trash.length > 0) {
+                    const idsToDelete = trash.map(t => t.id);
+                    // Safe delete
+                    await supabase.from('colaboradores_planos').delete().in('id', idsToDelete);
+                    console.log(`[Atribuir Plano] Limpeza: Removidos ${idsToDelete.length} registros duplicados/antigos.`);
+                }
             } else {
-                // Try Insert. If unique constraint fails, it means it exists (race condition or select missed it), so we Update.
+                // INSERT STRATEGY: No slot exists, valid insert
                 const { data: inserted, error: iError } = await supabase
                     .from('colaboradores_planos')
                     .insert({
@@ -128,34 +130,11 @@ module.exports = {
                     .select()
                     .single();
 
-                if (iError) {
-                    console.log('[Atribuir Plano] Insert falhou. Tentando Update de recuperação...', iError.message);
-
-                    // Fallback to Update unconditionally
-                    const { data: recovered, error: rError } = await supabase
-                        .from('colaboradores_planos')
-                        .update({
-                            matricula: matricula || null,
-                            ativo: true,
-                            updated_at: new Date()
-                        })
-                        .eq('colaborador_id', id)
-                        .eq('plano_id', pid)
-                        .select()
-                        .single();
-
-                    if (rError) {
-                        console.error('[Atribuir Plano] Update de recuperação também falhou:', rError.message);
-                        // Throw original error as it is likely the root cause (or recovery failed)
-                        throw iError;
-                    }
-                    data = recovered;
-                } else {
-                    data = inserted;
-                }
+                if (iError) throw iError;
+                data = inserted;
             }
 
-            res.json({ success: true, data, message: 'Plano atribuído/atualizado com sucesso.' });
+            res.json({ success: true, data, message: `Plano ${operacao === 'update' ? 'atualizado' : 'atribuído'} com sucesso.` });
 
         } catch (error) {
             console.error('Erro ao atribuir plano:', error);
@@ -171,12 +150,6 @@ module.exports = {
     async remover(req, res) {
         try {
             const { id, planoId } = req.params; // User ID, Plan Assignment ID? 
-            // Or User ID + Plan ID in body?
-            // Let's assume URL: /colaboradores/:id/planos/:assignmentId ?
-            // Or just /colaboradores/:id/planos with body?
-
-            // Implementation decision: DELETE /colaboradores/:id/planos/:plano_id (The plan product ID)
-            // To deactivate that plan for that user.
 
             const targetPlanoId = req.params.planoId; // The Plan Product ID (int)
 

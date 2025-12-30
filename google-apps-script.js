@@ -2016,20 +2016,21 @@ function mostrarModalEdicao(colaborador) {
     <div id="mensagem" style="margin-top: 20px; padding: 15px; display: none; border-radius: 6px;"></div>
     
     <script>
-      // Formata moeda sem Regex Literal para evitar erros
+      // Formata moeda - Versao Segura (Sem backslash hell)
       function formatarMoeda(el) {
         var v = el.value;
-        v = v.replace(new RegExp('[^0-9]', 'g'), ''); // Remove nao numeros
+        v = v.replace(/[^0-9]/g, ''); // Apenas numeros
         v = (v/100).toFixed(2) + '';
         v = v.replace('.', ',');
-        // Adiciona pontos de milhar
-        v = v.replace(new RegExp('(\\\\d)(\\\\d{3})(\\\\,)', 'g'), '$1.$2$3');
+        // Adiciona pontos de milhar: busca grupos de 3 digitos
+        // Usando loop simples ou regex literal segura
+        v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
         el.value = v;
       }
 
       document.getElementById('telefone').addEventListener('input', function(e) {
         var v = e.target.value;
-        v = v.replace(new RegExp('[^0-9]', 'g'), '');
+        v = v.replace(/[^0-9]/g, '');
         if (v.length > 11) v = v.substring(0, 11);
         e.target.value = v;
       });
@@ -2038,7 +2039,10 @@ function mostrarModalEdicao(colaborador) {
         e.preventDefault();
         
         var salarioStr = document.getElementById('salario_base').value;
-        var salarioLimpo = salarioStr.replace(new RegExp('\\\\.', 'g'), '').replace(',', '.');
+        
+        // LIMPEZA SEGURA: Remove tudo que nao for numero ou virgula
+        // Ex: "R$ 1.500,00" -> "1500,00"
+        var salarioLimpo = salarioStr.replace(/[^0-9,]/g, '').replace(',', '.');
         var salarioNum = parseFloat(salarioLimpo);
         
         var dados = {

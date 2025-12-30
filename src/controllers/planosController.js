@@ -71,10 +71,18 @@ module.exports = {
                 .eq('colaborador_id', id)
                 .eq('ativo', true);
 
-            const plansToDeactivate = existingPlans.filter(p => p.plano.tipo === planoInfo.tipo);
+            // Robust comparison (Case Insensitive + Optional Chaining)
+            const targetTipo = (planoInfo.tipo || '').toLowerCase();
+
+            const plansToDeactivate = existingPlans.filter(p => {
+                const pTipo = (p.plano && p.plano.tipo) ? p.plano.tipo.toLowerCase() : '';
+                return pTipo === targetTipo;
+            });
+
+            console.log(`[Atribuir Plano] Desativando ${plansToDeactivate.length} planos antigos do tipo ${targetTipo}`);
 
             for (const p of plansToDeactivate) {
-                if (p.id) { // Safety check
+                if (p.id) {
                     await supabase.from('colaboradores_planos').update({ ativo: false }).eq('id', p.id);
                 }
             }

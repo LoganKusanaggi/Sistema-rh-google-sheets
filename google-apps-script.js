@@ -2023,7 +2023,7 @@ function mostrarModalEdicao(colaborador) {
         v = (v/100).toFixed(2) + '';
         v = v.replace('.', ',');
         // Adiciona pontos de milhar
-        v = v.replace(new RegExp('(\\d)(\\d{3})(\\,)', 'g'), '$1.$2$3');
+        v = v.replace(new RegExp('(\\\\d)(\\\\d{3})(\\\\,)', 'g'), '$1.$2$3');
         el.value = v;
       }
 
@@ -2038,7 +2038,7 @@ function mostrarModalEdicao(colaborador) {
         e.preventDefault();
         
         var salarioStr = document.getElementById('salario_base').value;
-        var salarioLimpo = salarioStr.replace(new RegExp('\\.', 'g'), '').replace(',', '.');
+        var salarioLimpo = salarioStr.replace(new RegExp('\\\\.', 'g'), '').replace(',', '.');
         var salarioNum = parseFloat(salarioLimpo);
         
         var dados = {

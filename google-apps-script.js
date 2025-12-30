@@ -1827,7 +1827,7 @@ function mostrarModalEdicao(colaborador) {
     }
 
     // Tratamento robusto do Salário
-    var salario = colaborador.salario_base;
+    var salario = colaborador.salario_base || colaborador.salario; // Aceita ambos
     // Se vier nulo ou undefined
     if (salario === undefined || salario === null) salario = 0;
 
@@ -2166,7 +2166,8 @@ function mostrarModalEdicao(colaborador) {
                   res.data.forEach(function(pu) {
                       if (pu.plano && pu.plano.tipo === 'SAUDE') {
                           document.getElementById('plano_saude').value = pu.plano_id;
-                          if (pu.matricula) document.getElementById('matricula_saude').value = pu.matricula;
+                          var mat = pu.matricula || pu.carteirinha || pu.numero_carteirinha;
+                          if (mat) document.getElementById('matricula_saude').value = mat;
                       }
                       if (pu.plano && pu.plano.tipo === 'ODONTO') {
                           document.getElementById('plano_odonto').value = pu.plano_id;

@@ -567,9 +567,14 @@ function aplicarLayoutRelatorio(sheet, tipo, dados) {
 
     // DADOS
     if (layout.dados && layout.dados.length > 0) {
-        const dadosTabela = layout.dados.map(linha => {
+        const dadosTabela = layout.dados.map((linha, idx) => {
             return layout.colunas.map(col => {
                 const valor = linha[col.campo];
+
+                // DEBUG RENDERING only for first row/first col
+                if (idx === 0 && col.campo === layout.colunas[0].campo) {
+                    console.log(`RENDER CHECK: Campo=${col.campo}, Valor=${valor}, Tipo=${typeof valor}`);
+                }
 
                 // Formatar valor baseado no tipo
                 if (col.formato === 'moeda' && typeof valor === 'number') {
@@ -721,8 +726,9 @@ function enviarFolhaParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Folha')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha ..." para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // Validação mais flexível: Aceita "Lançamento Folha" ou "V. ... folha ..." (Restaurada)
+    if (!nomeAba.toLowerCase().includes('folha')) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba de "Folha" (Lançamento ou Histórico) para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -737,34 +743,64 @@ function enviarFolhaParaAPI() {
         return;
     }
 
+    const headers = data[0].map(h => String(h).trim().toLowerCase());
+
+    // Helper para buscar valor dinamicamente
+    function getVal(row, keywords) {
+        const keys = Array.isArray(keywords) ? keywords : [keywords];
+        let colIndex = -1;
+
+        // 1. Tenta match exato ou parcial
+        for (const k of keys) {
+            colIndex = headers.findIndex(h => h === k || h.includes(k));
+            if (colIndex > -1) break;
+        }
+
+        // 2. Tenta normalizar (remover acentos)
+        if (colIndex === -1) {
+            const normalizedHeaders = headers.map(h => h.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+            for (const k of keys) {
+                const kNorm = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                colIndex = normalizedHeaders.findIndex(h => h === kNorm || h.includes(kNorm));
+                if (colIndex > -1) break;
+            }
+        }
+
+        if (colIndex === -1) return null;
+        return row[colIndex];
+    }
+
     const folhas = [];
-    // Mapeamento baseado na ordem das colunas em lancarFolha
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        const cpfRaw = String(row[0]);
+
+        const cpfRaw = getVal(row, 'cpf');
         if (!cpfRaw) continue;
 
         folhas.push({
-            cpf: cpfRaw.replace(/\D/g, ''),
-            mes_referencia: row[2],
-            ano_referencia: row[3],
-            salario_base: row[4],
-            horas_extras: row[5],
-            adicional_noturno: row[6],
-            insalubridade: row[7],
-            periculosidade: row[8],
-            comissoes: row[9],
-            gratificacoes: row[10],
-            outros_proventos: row[11],
-            inss: row[12],
-            irrf: row[13],
-            vale_transporte: row[14],
-            vale_refeicao: row[15],
-            plano_saude: row[16],
-            outros_descontos: row[17],
-            status_pagamento: row[18] ? String(row[18]).toLowerCase() : 'pendente',
-            data_pagamento: row[19] ? new Date(row[19]).toISOString().split('T')[0] : null,
-            observacoes: row[20]
+            cpf: String(cpfRaw).replace(/\D/g, ''),
+            mes_referencia: getVal(row, ['mês', 'mes', 'mes_referencia']) || 0,
+            ano_referencia: getVal(row, ['ano', 'ano_referencia']) || 0,
+
+            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
+            horas_extras: getVal(row, ['horas extras', 'horas_extras']) || 0,
+            adicional_noturno: getVal(row, ['adic. noturno', 'adicional noturno', 'adicional_noturno', 'adic_noturno']) || 0,
+            insalubridade: getVal(row, 'insalubridade') || 0,
+            periculosidade: getVal(row, 'periculosidade') || 0,
+            comissoes: getVal(row, ['comissões', 'comissoes']) || 0,
+            gratificacoes: getVal(row, ['gratificações', 'gratificacoes']) || 0,
+            outros_proventos: getVal(row, ['outros prov.', 'outros proventos', 'outros_proventos']) || 0,
+
+            inss: getVal(row, 'inss') || 0,
+            irrf: getVal(row, 'irrf') || 0,
+            vale_transporte: getVal(row, ['vale transp.', 'vale transporte', 'vale_transporte']) || 0,
+            vale_refeicao: getVal(row, ['vale refeição', 'vale refeicao', 'vale_refeicao']) || 0,
+            plano_saude: getVal(row, ['plano saúde', 'plano saude', 'plano_saude']) || 0,
+            outros_descontos: getVal(row, ['outros desc.', 'outros descontos', 'outros_descontos']) || 0,
+
+            status_pagamento: String(getVal(row, ['status', 'status_pagamento']) || 'pendente').toLowerCase(),
+            data_pagamento: getVal(row, ['data pagto', 'data pagamento', 'data_pagamento']) ? new Date(getVal(row, ['data pagto', 'data pagamento'])).toISOString().split('T')[0] : null,
+            observacoes: getVal(row, ['obs', 'observacoes', 'observações']) || ''
         });
     }
 
@@ -783,8 +819,8 @@ function enviarFolhaParaAPI() {
         if (resultado.success) {
             ui.alert('✅ Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
 
-            // Perguntar se deseja excluir
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento para manter a planilha organizada?', ui.ButtonSet.YES_NO);
+            // Perguntar se deseja excluir (sempre, seja Lançamento ou Snapshot)
+            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba para manter a planilha organizada?', ui.ButtonSet.YES_NO);
             if (respDel == ui.Button.YES) {
                 try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
             }
@@ -2402,5 +2438,307 @@ function formatarDataInteligente(data) {
 }
 
 function onEdit(e) {
-    // Placeholder
+    // FAST EXIT: Se nao for na aba Colaboradores ou nao for Coluna 1 (A)
+    if (!e) return; // Execucao manual
+
+    const sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== CONFIG.ABAS.COLABORADORES) return;
+
+    const range = e.range;
+    const row = range.getRow();
+    const col = range.getColumn();
+
+    // LOGICA CHECKBOX "SELECIONAR TUDO"
+    // Funciona para o checkbox da linha 3 (Filtro) ou linha 5 (Cabecalho)
+    if (col === 1 && (row === 3 || row === 5)) {
+        const isChecked = range.getValue();
+
+        // Valida se eh booleano para evitar disparos falsos
+        if (typeof isChecked !== 'boolean' && isChecked !== 'TRUE' && isChecked !== 'FALSE') return;
+
+        const lastRow = sheet.getLastRow();
+        if (lastRow < 6) return; // Sem dados
+
+        // Aplica a todos os checkboxes de dados (A6 em diante)
+        // Otimizado: setValue unico para o range inteiro
+        const numRows = lastRow - 5;
+        sheet.getRange(6, 1, numRows, 1).setValue(isChecked);
+
+        // Feedback visual opcional (Toast)
+        e.source.toast(isChecked ? '✅ Todos selecionados' : '⬜ Seleção limpa');
+    }
+}
+
+
+
+// =====================================================
+// HISTÓRICO DE VERSÕES (RESTAURADO)
+// =====================================================
+// FUNCIONALIDADES DE HISTÓRICO (RESTAURADO)
+// =====================================================
+
+// 1. API WRAPPERS
+function listarHistoricoAPI(tipo) {
+    const endpoint = `${CONFIG.API_URL}/relatorios/historico`;
+    const payload = { tipo: tipo || null, limit: 20 };
+
+    const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload)
+    };
+
+    try {
+        const response = UrlFetchApp.fetch(endpoint, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function obterHistoricoAPI(id) {
+    const endpoint = `${CONFIG.API_URL}/relatorios/historico/${id}`;
+
+    try {
+        const response = UrlFetchApp.fetch(endpoint);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+// 2. MODAL UI
+function listarHistoricoModal() {
+    const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20px; background-color: #f8f9fa; }
+      h2 { color: #1a73e8; margin-top: 0; }
+      .loading { text-align: center; color: #666; margin-top: 20px; }
+      table { width: 100%; border-collapse: collapse; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+      th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+      th { background-color: #f1f3f4; font-weight: 600; color: #5f6368; }
+      tr:hover { background-color: #f8f9fa; }
+      .badge { padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+      .badge-folha { background: #e8f0fe; color: #1967d2; }
+      .badge-beneficios { background: #e6f4ea; color: #137333; }
+      .btn-load { background: #1a73e8; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+      .btn-load:hover { background: #1557d0; }
+      .btn-load:disabled { background: #ccc; cursor: not-allowed; }
+    </style>
+
+    <h2>📜 Histórico de Relatórios (Snapshots)</h2>
+    <p>Visualize e recupere versões anteriores geradas.</p>
+    
+    <div id="content">
+      <div class="loading">Carregando histórico...</div>
+    </div>
+
+    <script>
+      function carregarHistorico() {
+        google.script.run
+          .withSuccessHandler(renderizarTabela)
+          .withFailureHandler(mostrarErro)
+          .listarHistoricoAPI();
+      }
+
+      function renderizarTabela(res) {
+        if (!res.success) return mostrarErro(res.error);
+        
+        const lista = res.historico;
+        if (!lista || lista.length === 0) {
+          document.getElementById('content').innerHTML = '<p>Nenhum histórico encontrado.</p>';
+          return;
+        }
+
+        let html = '<table><thead><tr><th>Data</th><th>Tipo</th><th>Ref</th><th>Ação</th></tr></thead><tbody>';
+        
+        lista.forEach(item => {
+          const data = new Date(item.created_at).toLocaleString('pt-BR');
+          const tipoClass = 'badge-' + item.tipo;
+          
+          html += '<tr>';
+          html += '<td>' + data + '</td>';
+          html += '<td><span class="badge ' + tipoClass + '">' + item.tipo.toUpperCase() + '</span></td>';
+          html += '<td>' + (item.mes_referencia ? item.mes_referencia + '/' + item.ano_referencia : '-') + '</td>';
+          html += '<td><button class="btn-load" onclick="carregarVersao(\\'' + item.id + '\\', \\'' + item.tipo + '\\')">📂 Abrir</button></td>';
+          html += '</tr>';
+        });
+        
+        html += '</tbody></table>';
+        document.getElementById('content').innerHTML = html;
+      }
+
+      function abrirConfirmacao(id, tipo) {
+        const overlay = document.getElementById('confirm-overlay');
+        const btnSim = document.getElementById('btn-confirm-action');
+        
+        // Define a ação do botão Sim
+        btnSim.onclick = function() {
+          carregarVersao(id);
+          fecharConfirmacao();
+        };
+        
+        overlay.style.display = 'flex';
+      }
+
+      function fecharConfirmacao() {
+         document.getElementById('confirm-overlay').style.display = 'none';
+      }
+
+      function carregarVersao(id) {
+        // Mostra loading "global" tosco ou muda botões, aqui vamos simplificar:
+        const contentDiv = document.getElementById('content');
+        contentDiv.innerHTML = '<div class="loading">♻️ Restaurando versão... Aguarde...</div>';
+
+        google.script.run
+          .withSuccessHandler(() => { 
+             google.script.host.close();
+          })
+          .withFailureHandler((err) => {
+             alert('Erro ao carregar versão: ' + err); // Esse alert ainda é nativo, mas é erro fatal
+             carregarHistorico(); // Recarrega
+          })
+          .carregarSnapshotParaAba(id);
+      }
+
+      function mostrarErro(msg) {
+        document.getElementById('content').innerHTML = '<p style="color:red">Erro: ' + msg + '</p>';
+      }
+
+      window.onload = carregarHistorico;
+    </script>
+  `).setWidth(650).setHeight(550);
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Histórico de Versões');
+}
+
+// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA
+function carregarSnapshotParaAba(id) {
+    const res = obterHistoricoAPI(id);
+    if (!res.success) throw new Error(res.error);
+
+    const header = res.relatorio;
+    const itens = res.itens;
+
+    // FIX: O `criarAbaRelatorio` espera um objeto 'resultado' completo que tenha .layout e .dados
+    // No banco, salvamos itens individuais. Precisamos reconstruir a estrutura que o relatório original tinha.
+
+    // 1. Tentar recuperar o layout do primeiro item (assumindo que salvamos o snapshot completo em cada item ou no header)
+    // No controller: dados_snapshot: linha
+    // O layout original NÃO foi salvo explicitamente no `relatorios_gerados` (vimos o insert).
+    // Porém, o `dados_snapshot` de cada linha contém os dados daquela linha.
+    // O `aplicarLayoutRelatorio` precisa de `dados.layout`.
+    // Se não temos o layout salvo, precisamos REGERAR o layout baseando-se no tipo.
+
+    // FIX: Normalizar campo 'nome' que pode vir como 'nome_colaborador' no snapshot
+    const dadosLinhas = itens.map(i => {
+        const d = i.dados_snapshot;
+        if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
+        return d;
+    });
+
+    console.log('--- DEBUG SNAPSHOT ---');
+    if (dadosLinhas.length > 0) {
+        console.log('Primeiro Item (JSON):', JSON.stringify(dadosLinhas[0]));
+        console.log('Chaves:', Object.keys(dadosLinhas[0]));
+    } else {
+        console.log('Nenhum dado encontrado no snapshot.');
+    }
+
+    // Simular a estrutura de retorno do RelatorioService
+    // Precisamos chamar o service para pegar só o layout vazio ou reconstruir manual?
+    // Vamos reconstruir um objeto de dados compatível.
+
+    // HACK INTELIGENTE:
+    // Se não salvamos o layout no banco, vamos "adivinhar" o layout chamando a função de gerar layout localmente 
+    // OU (mais seguro) pegar o layout de uma chamada "fake" de relatório vazio?
+    // Como não temos acesso fácil ao backend "services" aqui no GAS (só via API), vamos confiar que o `dados_snapshot` 
+    // pode ser renderizado se tivermos as colunas.
+
+    // SOLUÇÃO ROBUSTA:
+    // Vamos fazer uma chamada ao endpoint de relatório "gerar" apenas para pegar o layout (dry-run)
+    // OU vamos implementar um layout genérico baseado nas chaves do JSON?
+
+    // Vamos usar a estratégia de "Gerar Relatório Fresco" para pegar o layout atual.
+    // Isso garante que o layout seja compatível com a versão atual do sistema.
+    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
+
+    // Monta o objeto final para o renderizador
+    const layoutGerado = obterLayoutPorTipoAPI(dadosLinhas, header.tipo);
+
+    // FIX CRÍTICO: O 'aplicarLayoutRelatorio' busca os dados dentro de 'layout.dados'
+    layoutGerado.dados = dadosLinhas;
+
+    const resultadoReconstruido = {
+        layout: layoutGerado,
+        dados: dadosLinhas
+    };
+
+    const nomeAba = `V. ${header.created_at.substring(0, 10)} - ${header.tipo}`;
+
+    criarAbaRelatorio(header.tipo, nomeAba, resultadoReconstruido, periodo);
+
+    return { success: true };
+}
+
+// Helper para pegar layout atualizado e PADRONIZADO
+function obterLayoutPorTipoAPI(dadosLinhas, tipo) {
+    if (!dadosLinhas.length) return { colunas: [] };
+
+    // 1. Layouts Canônicos (Oficiais do Sistema)
+    // Isso garante que o histórico abra exatamente como um Lançamento Oficial
+    if (tipo === 'folha' || tipo === 'folha_pagamento') {
+        return {
+            colunas: [
+                { nome: 'CPF', campo: 'cpf', largura: 120, formato: 'cpf' },
+                { nome: 'Nome', campo: 'nome', largura: 250 }, // Snapshot as vezes nao tem 'nome', tem 'nome_colaborador'. Vamos tratar no renderizador ou aqui? O renderizador busca 'campo'. Se o snapshot tem 'nome_colaborador', precisamos remapear.
+                { nome: 'Mês', campo: 'mes_referencia', largura: 50 },
+                { nome: 'Ano', campo: 'ano_referencia', largura: 60 },
+                { nome: 'Salário Base', campo: 'salario_base', largura: 100, formato: 'moeda' },
+                { nome: 'Horas Extras', campo: 'horas_extras', largura: 100, formato: 'moeda' },
+                { nome: 'Adic. Noturno', campo: 'adicional_noturno', largura: 100, formato: 'moeda' },
+                { nome: 'Insalubridade', campo: 'insalubridade', largura: 100, formato: 'moeda' },
+                { nome: 'Periculosidade', campo: 'periculosidade', largura: 100, formato: 'moeda' },
+                { nome: 'Comissões', campo: 'comissoes', largura: 100, formato: 'moeda' },
+                { nome: 'Gratificações', campo: 'gratificacoes', largura: 100, formato: 'moeda' },
+                { nome: 'Outros Prov.', campo: 'outros_proventos', largura: 100, formato: 'moeda' },
+                { nome: 'INSS', campo: 'inss', largura: 100, formato: 'moeda' },
+                { nome: 'IRRF', campo: 'irrf', largura: 100, formato: 'moeda' },
+                { nome: 'Vale Transp.', campo: 'vale_transporte', largura: 100, formato: 'moeda' },
+                { nome: 'Vale Refeição', campo: 'vale_refeicao', largura: 100, formato: 'moeda' },
+                { nome: 'Plano Saúde', campo: 'plano_saude', largura: 100, formato: 'moeda' },
+                { nome: 'Outros Desc.', campo: 'outros_descontos', largura: 100, formato: 'moeda' },
+                { nome: 'Status (Pendente/Pago)', campo: 'status_pagamento', largura: 120 },
+                { nome: 'Data Pagto', campo: 'data_pagamento', largura: 100 },
+                { nome: 'Obs', campo: 'observacoes', largura: 150 }
+            ],
+            formatacao: {
+                cabecalho: { bold: true, background: '#4a86e8', color: '#ffffff' },
+                colunas: { bold: true, background: '#f1f3f4' },
+                dados: { zebraStripe: true }
+            }
+        };
+    }
+
+    // Tratamento de compatibilidade para Nomes
+    // Alguns snapshots antigos podem ter 'nome_colaborador' ou 'nome_completo' em vez de 'nome'
+    // Vamos varrer os dados e normalizar isso antes de prosseguir se não for folha
+
+    // 2. Fallback: Layout Dinâmico (Inferred)
+    const primeiroItem = dadosLinhas[0];
+    const chavesIgnoradas = ['id', 'colaborador_id', 'relatorio_id', 'dados_snapshot'];
+    const chaves = Object.keys(primeiroItem).filter(k => !chavesIgnoradas.includes(k));
+
+    return {
+        colunas: chaves.map(k => ({
+            nome: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' '),
+            campo: k,
+            largura: k.length > 20 ? 200 : 120
+        })),
+        formatacao: {
+            cabecalho: { bold: true, background: '#4285f4', color: '#ffffff' }, // Azul mais Google
+            colunas: { bold: true, background: '#f1f3f4' },
+            dados: { zebraStripe: true }
+        }
+    };
 }

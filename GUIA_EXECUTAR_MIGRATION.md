@@ -1,3 +1,25 @@
+# 🔧 GUIA: Como Executar a Migration no Supabase
+
+## ⚠️ IMPORTANTE
+Infelizmente não tenho permissões para executar migrations via MCP Server. Você precisará executar manualmente seguindo os passos abaixo.
+
+## 📋 PASSO A PASSO
+
+### 1. Acessar o Supabase Dashboard
+1. Acesse: https://supabase.com/dashboard
+2. Faça login
+3. Selecione o projeto: **vqpqxjqpqjmwbqgcpxlr**
+
+### 2. Abrir o SQL Editor
+1. No menu lateral, clique em **SQL Editor**
+2. Clique em **New Query** (ou use Ctrl+Enter)
+
+### 3. Copiar e Colar a Migration
+Copie TODO o conteúdo do arquivo `migration_folha_simplificada.sql` e cole no editor SQL.
+
+Ou copie diretamente daqui:
+
+```sql
 -- =====================================================
 -- MIGRATION: Simplificar Folha de Pagamento
 -- =====================================================
@@ -75,3 +97,51 @@ ALTER TABLE folha_pagamento ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Service role has full access to folha_pagamento" ON folha_pagamento
   FOR ALL USING (auth.role() = 'service_role');
+```
+
+### 4. Executar a Migration
+1. Clique no botão **Run** (ou pressione Ctrl+Enter)
+2. Aguarde a execução
+3. Verifique se apareceu "Success" na parte inferior
+
+### 5. Verificar se Funcionou
+Execute esta query para verificar a nova estrutura:
+
+```sql
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'folha_pagamento' 
+ORDER BY ordinal_position;
+```
+
+Você deve ver as 18 novas colunas:
+- nome_colaborador
+- local_trabalho
+- data_admissao
+- socio
+- salario_base
+- novo_salario
+- cargo
+- departamento
+- convenio_escolhido
+- data_nascimento
+- idade
+- faixa_etaria
+- vl_100_amil
+- vl_empresa_amil
+- vl_func_amil
+- amil_saude_dep
+- odont_func
+- odont_dep
+
+## ✅ Próximo Passo
+Após executar a migration com sucesso, você pode:
+1. Atualizar as funções no Google Apps Script
+2. Testar criando uma nova planilha de lançamento
+3. Verificar se os dados aparecem corretamente
+
+## 🆘 Em Caso de Erro
+Se der erro na execução:
+1. Copie a mensagem de erro
+2. Me envie para eu ajudar a resolver
+3. Não se preocupe - a migration tem proteções (IF NOT EXISTS, ON CONFLICT)

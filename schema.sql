@@ -30,6 +30,7 @@ CREATE INDEX idx_colaboradores_status ON colaboradores(status);
 CREATE INDEX idx_colaboradores_departamento ON colaboradores(departamento);
 
 -- ===== TABELA: folha_pagamento =====
+-- Estrutura baseada no Template Real da Empresa
 CREATE TABLE IF NOT EXISTS folha_pagamento (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   colaborador_id UUID REFERENCES colaboradores(id) ON DELETE CASCADE,
@@ -38,28 +39,28 @@ CREATE TABLE IF NOT EXISTS folha_pagamento (
   mes_referencia INTEGER NOT NULL CHECK (mes_referencia BETWEEN 1 AND 12),
   ano_referencia INTEGER NOT NULL CHECK (ano_referencia >= 2020),
   
-  -- Proventos
+  -- Dados Básicos (Colunas A-H do Template)
+  local_trabalho VARCHAR(100),
+  data_admissao DATE,
+  socio VARCHAR(10), -- 'S' ou vazio
   salario_base DECIMAL(10,2) DEFAULT 0,
-  horas_extras DECIMAL(10,2) DEFAULT 0,
-  adicional_noturno DECIMAL(10,2) DEFAULT 0,
-  insalubridade DECIMAL(10,2) DEFAULT 0,
-  periculosidade DECIMAL(10,2) DEFAULT 0,
-  comissoes DECIMAL(10,2) DEFAULT 0,
-  gratificacoes DECIMAL(10,2) DEFAULT 0,
-  outros_proventos DECIMAL(10,2) DEFAULT 0,
-  total_proventos DECIMAL(10,2) DEFAULT 0,
+  novo_salario DECIMAL(10,2), -- Para reajustes
+  cargo VARCHAR(100),
+  departamento VARCHAR(100),
   
-  -- Descontos
-  inss DECIMAL(10,2) DEFAULT 0,
-  irrf DECIMAL(10,2) DEFAULT 0,
-  vale_transporte DECIMAL(10,2) DEFAULT 0,
-  vale_refeicao DECIMAL(10,2) DEFAULT 0,
-  plano_saude DECIMAL(10,2) DEFAULT 0,
-  outros_descontos DECIMAL(10,2) DEFAULT 0,
-  total_descontos DECIMAL(10,2) DEFAULT 0,
+  -- Plano de Saúde (Colunas I-P do Template)
+  convenio_escolhido VARCHAR(100),
+  data_nascimento DATE,
+  idade INTEGER,
+  faixa_etaria VARCHAR(20), -- Ex: "24-28"
+  vl_100_amil DECIMAL(10,2) DEFAULT 0,
+  vl_empresa_amil DECIMAL(10,2) DEFAULT 0,
+  vl_func_amil DECIMAL(10,2) DEFAULT 0,
+  amil_saude_dep DECIMAL(10,2) DEFAULT 0,
   
-  -- Líquido
-  salario_liquido DECIMAL(10,2) DEFAULT 0,
+  -- Plano Odontológico (Colunas Q-R do Template)
+  odont_func DECIMAL(10,2) DEFAULT 0,
+  odont_dep DECIMAL(10,2) DEFAULT 0,
   
   -- Controle
   status_pagamento VARCHAR(20) DEFAULT 'pendente' CHECK (status_pagamento IN ('pendente', 'pago', 'cancelado')),

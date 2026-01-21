@@ -373,57 +373,65 @@ const folhaController = {
                 cpfToData[c.cpf] = c;
             });
 
-            // Processar folhas
-            const folhasFormatadas = folhas.map(f => {
-                const colab = cpfToData[formatarCPF(f.cpf)];
-                if (!colab) return null;
+            // Processar folhas - NOVA ESTRUTURA DO TEMPLATE
+            const folhasFormatadas = [];
 
-                const total_proventos =
-                    parseFloat(f.salario_base || 0) +
-                    parseFloat(f.horas_extras || 0) +
-                    parseFloat(f.adicional_noturno || 0) +
-                    parseFloat(f.insalubridade || 0) +
-                    parseFloat(f.periculosidade || 0) +
-                    parseFloat(f.comissoes || 0) +
-                    parseFloat(f.gratificacoes || 0) +
-                    parseFloat(f.outros_proventos || 0);
+            for (const f of folhas) {
+                // Buscar colaborador pelo nome (já que a planilha vem com nome, não CPF)
+                let colab = null;
 
-                const total_descontos =
-                    parseFloat(f.inss || 0) +
-                    parseFloat(f.irrf || 0) +
-                    parseFloat(f.vale_transporte || 0) +
-                    parseFloat(f.vale_refeicao || 0) +
-                    parseFloat(f.plano_saude || 0) +
-                    parseFloat(f.outros_descontos || 0);
+                if (f.nome_colaborador) {
+                    // Buscar por nome
+                    const { data: colabData } = await supabase
+                        .from('colaboradores')
+                        .select('id, cpf, nome_completo')
+                        .ilike('nome_completo', `%${f.nome_colaborador}%`)
+                        .limit(1)
+                        .single();
+                    colab = colabData;
+                } else if (f.cpf) {
+                    // Fallback: buscar por CPF se fornecido
+                    colab = cpfToData[formatarCPF(f.cpf)];
+                }
 
-                return {
+                if (!colab) continue;
+
+                folhasFormatadas.push({
                     colaborador_id: colab.id,
-                    cpf: formatarCPF(f.cpf),
-                    nome_colaborador: colab.nome_completo,
+                    cpf: colab.cpf,
+                    nome_colaborador: f.nome_colaborador || colab.nome_completo,
                     mes_referencia: parseInt(f.mes_referencia),
                     ano_referencia: parseInt(f.ano_referencia),
+
+                    // Dados básicos do template
+                    local_trabalho: f.local_trabalho || null,
+                    data_admissao: f.data_admissao || null,
+                    socio: f.socio || null,
                     salario_base: parseFloat(f.salario_base || 0),
-                    horas_extras: parseFloat(f.horas_extras || 0),
-                    adicional_noturno: parseFloat(f.adicional_noturno || 0),
-                    insalubridade: parseFloat(f.insalubridade || 0),
-                    periculosidade: parseFloat(f.periculosidade || 0),
-                    comissoes: parseFloat(f.comissoes || 0),
-                    gratificacoes: parseFloat(f.gratificacoes || 0),
-                    outros_proventos: parseFloat(f.outros_proventos || 0),
-                    total_proventos,
-                    inss: parseFloat(f.inss || 0),
-                    irrf: parseFloat(f.irrf || 0),
-                    vale_transporte: parseFloat(f.vale_transporte || 0),
-                    vale_refeicao: parseFloat(f.vale_refeicao || 0),
-                    plano_saude: parseFloat(f.plano_saude || 0),
-                    outros_descontos: parseFloat(f.outros_descontos || 0),
-                    total_descontos,
-                    salario_liquido: total_proventos - total_descontos,
+                    novo_salario: f.novo_salario ? parseFloat(f.novo_salario) : null,
+                    cargo: f.cargo || null,
+                    departamento: f.departamento || null,
+
+                    // Plano de Saúde
+                    convenio_escolhido: f.convenio_escolhido || null,
+                    data_nascimento: f.data_nascimento || null,
+                    idade: f.idade ? parseInt(f.idade) : null,
+                    faixa_etaria: f.faixa_etaria || null,
+                    vl_100_amil: parseFloat(f.vl_100_amil || 0),
+                    vl_empresa_amil: parseFloat(f.vl_empresa_amil || 0),
+                    vl_func_amil: parseFloat(f.vl_func_amil || 0),
+                    amil_saude_dep: parseFloat(f.amil_saude_dep || 0),
+
+                    // Plano Odontológico
+                    odont_func: parseFloat(f.odont_func || 0),
+                    odont_dep: parseFloat(f.odont_dep || 0),
+
+                    // Controle
                     status_pagamento: f.status_pagamento || 'pendente',
-                    data_pagamento: f.data_pagamento,
-                    observacoes: f.observacoes
-                };
-            }).filter(f => f !== null);
+                    data_pagamento: f.data_pagamento || null,
+                    observacoes: f.observacoes || null
+                });
+            }
 
             const { data, error } = await supabase
                 .from('folha_pagamento')

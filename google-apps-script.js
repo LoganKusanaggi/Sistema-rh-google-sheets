@@ -2340,13 +2340,15 @@ function mostrarModalEdicao(colaborador) {
           if (depId) {
               // UPDATE
               google.script.run.withSuccessHandler(function(res) {
+                  console.log('CLIENTE: Resposta Update:', res); // Log no browser
                   btn.disabled = false;
                   btn.textContent = 'Salvar Alteração';
                   if (res.success) {
                       cancelarEdicaoDependente(); // Reset form
                       carregarDependentesUI(id);
                   } else {
-                      alert('Erro ao atualizar: ' + res.error);
+                      // Mostra o erro COMPLETO no alert
+                      alert('Erro ao atualizar (Detalhes): ' + (typeof res.error === 'object' ? JSON.stringify(res.error) : res.error));
                   }
               }).atualizarDependenteAPI(depId, dadosDep);
           } else {
@@ -2511,7 +2513,7 @@ function atualizarDependenteAPI(id, dependente) {
     var url = '';
     try {
         url = CONFIG.API_URL + '/dependentes/' + id;
-        
+
         // Remove CPF do payload para garantir que nao vá
         var payloadFinal = JSON.parse(JSON.stringify(dependente));
         delete payloadFinal.cpf;
@@ -2528,7 +2530,7 @@ function atualizarDependenteAPI(id, dependente) {
         var response = UrlFetchApp.fetch(url, options);
         raw = response.getContentText();
         console.log('Response Raw:', raw);
-        
+
         // Se retornar HTML (erro do express/vercel), trate
         if (raw.indexOf('<') === 0) {
             return { success: false, error: 'Erro HTML retornado: ' + raw.substring(0, 50) + '...' };

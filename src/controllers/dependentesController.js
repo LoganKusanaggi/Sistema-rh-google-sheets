@@ -51,6 +51,11 @@ module.exports = {
 
             if (error) throw error;
 
+            // Sync after add
+            if (data) {
+                await atualizarContagemDependentes(colaboradorId);
+            }
+
             res.json({ success: true, data, message: 'Dependente adicionado com sucesso.' });
         } catch (error) {
             console.error('Erro ao adicionar dependente:', error);
@@ -63,12 +68,23 @@ module.exports = {
         try {
             const { id } = req.params;
 
+            // First get the colaborador_id before deleting
+            const { data: dept } = await supabase
+                .from('dependentes')
+                .select('colaborador_id')
+                .eq('id', id)
+                .single();
+
             const { error } = await supabase
                 .from('dependentes')
                 .delete()
                 .eq('id', id);
 
             if (error) throw error;
+
+            if (dept) {
+                await atualizarContagemDependentes(dept.colaborador_id);
+            }
 
             res.json({ success: true, message: 'Dependente removido com sucesso.' });
         } catch (error) {
@@ -77,3 +93,27 @@ module.exports = {
         }
     }
 };
+
+// Helper para sincronizar contador
+async function atualizarContagemDependentes(colaboradorId) {
+    try {
+        const { count, error } = await supabase
+            .from('dependentes')
+            .select('*', { count: 'exact', head: true })
+            .eq('colaborador_id', colaboradorId);
+
+        if (error) throw error;
+
+        console.log(`[Sync Dependentes] Colaborador ${colaboradorId} tem ${count} dependentes. Atualizando planos...`);
+
+        const { error: uError } = await supabase
+            .from('colaboradores_planos')
+            .update({ dependentes: count })
+            .eq('colaborador_id', colaboradorId);
+
+        if (uError) throw uError;
+
+    } catch (err) {
+        console.error('Erro ao sincronizar dependentes:', err);
+    }
+}

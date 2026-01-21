@@ -64,6 +64,12 @@ module.exports = {
 
             if (pError || !planoInfo) throw new Error('Plano não encontrado');
 
+            // 0. Get dependent count for sync
+            const { count: depsCount } = await supabase
+                .from('dependentes')
+                .select('*', { count: 'exact', head: true })
+                .eq('colaborador_id', id);
+
             // 1. Fetch ALL plans of this type (Active or not)
             const { data: existingPlans, error: eError } = await supabase
                 .from('colaboradores_planos')
@@ -101,6 +107,7 @@ module.exports = {
                     .from('colaboradores_planos')
                     .update({
                         matricula: matricula || null,
+                        dependentes: depsCount || 0,
                         ativo: true
                     })
                     .eq('id', exactMatch.id)
@@ -120,6 +127,7 @@ module.exports = {
                     .update({
                         plano_id: pid, // Change product
                         matricula: matricula || null,
+                        dependentes: depsCount || 0,
                         ativo: true
                     })
                     .eq('id', slotToReuse.id)
@@ -139,6 +147,7 @@ module.exports = {
                         colaborador_id: id,
                         plano_id: pid,
                         matricula: matricula || null,
+                        dependentes: depsCount || 0,
                         ativo: true
                     })
                     .select()

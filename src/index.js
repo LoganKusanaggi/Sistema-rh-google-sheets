@@ -22,22 +22,23 @@ app.use((req, res, next) => {
     next();
 });
 
-// Rotas
-app.use('/api', routes);
-
-// FIX EMERGÊNCIA: Rota explícita para dependentes
+// FIX EMERGÊNCIA: Rota explícita PRIORITÁRIA para dependentes
+// Deve vir ANTES de app.use('/api', routes) para garantir que capture
 const dependentesController = require('./controllers/dependentesController');
 app.put('/api/dependentes/:id', (req, res, next) => {
-    console.log('[DEBUG INDEX] Acessou PUT /api/dependentes/:id');
+    console.log('[DEBUG INDEX TOP] Acessou PUT /api/dependentes/' + req.params.id);
     next();
 }, dependentesController.atualizar);
+
+// Rotas Gerais
+app.use('/api', routes);
 
 // Rota raiz
 app.get('/', (req, res) => {
     res.json({
         status: 'online',
-        message: 'API Sistema RH - v2.0 (Arquitetura Correta)',
-        version: '2.0.0',
+        message: 'API Sistema RH - v2.1 FIX ROUTING',
+        version: '2.1.0',
         timestamp: new Date().toISOString(),
         endpoints: {
             colaboradores: '/api/colaboradores',

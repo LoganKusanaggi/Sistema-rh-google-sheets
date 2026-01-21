@@ -95,13 +95,7 @@ router.post('/relatorios/exportar', relatoriosController.exportarRelatorio);
 router.post('/relatorios/historico', relatoriosController.listarHistorico);
 router.get('/relatorios/historico/:id', relatoriosController.obterHistorico);
 
-// ===== ROTA DE DEPENDENTES (FIX EXPLICITO) =====
-// Forçando a rota aqui para garantir que não haja erro de roteamento
-const dependentesController = require('../controllers/dependentesController');
-router.put('/dependentes/:id', (req, res, next) => {
-    console.log('[DEBUG ROUTE] Acessou PUT /dependentes/:id');
-    next();
-}, dependentesController.atualizar);
+
 
 // ===== ROTA DE HEALTH CHECK =====
 router.get('/health', (req, res) => {

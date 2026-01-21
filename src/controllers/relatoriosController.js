@@ -1,157 +1,184 @@
 const supabase = require('../config/supabase');
-const { formatarCPF } = require('../utils/validators');
 const RelatorioService = require('../services/relatorioService');
 
 const relatoriosController = {
 
-    // ===== GERAR RELATÓRIO GENÉRICO =====
+    // ===== GERAR RELATÓRIO (EXISTENTE) =====
     async gerarRelatorio(req, res) {
         try {
-            const { tipo, cpfs, periodo, formato = 'json', opcoes = {}, salvar_historico = true } = req.body;
+            const { tipoRelatorio, filtros, user_id } = req.body;
 
-            // Validações
-            if (!tipo) {
-                return res.status(400).json({ success: false, error: 'Tipo de relatório é obrigatório' });
-            }
-            if (!cpfs || !Array.isArray(cpfs) || cpfs.length === 0) {
-                return res.status(400).json({ success: false, error: 'CPFs dos colaboradores são obrigatórios' });
-            }
+            console.log(`Iniciando geração de relatório: ${tipoRelatorio}`);
 
-            const cpfsFormatados = cpfs.map(formatarCPF);
+            // Chama o Service
+            const resultado = await RelatorioService.gerarRelatorio(tipoRelatorio, filtros, user_id);
 
-            // Delegar para o serviço específico
-            let resultado;
-            switch (tipo) {
-                case 'folha': resultado = await RelatorioService.gerarFolha(cpfsFormatados, periodo, opcoes); break;
-                case 'beneficios': resultado = await RelatorioService.gerarBeneficios(cpfsFormatados, periodo, opcoes); break;
-                case 'variavel': resultado = await RelatorioService.gerarVariavel(cpfsFormatados, periodo, opcoes); break;
-                case 'apontamentos': resultado = await RelatorioService.gerarApontamentos(cpfsFormatados, periodo, opcoes); break;
-                case 'seguros': resultado = await RelatorioService.gerarSeguros(cpfsFormatados, opcoes); break;
-                case 'planos': resultado = await RelatorioService.gerarPlanos(cpfsFormatados, periodo, opcoes); break;
-                default: return res.status(400).json({ success: false, error: `Tipo inválido: ${tipo}` });
-            }
-
-            // ===== PERSISTIR NO BANCO (HISTÓRICO) =====
-            let relatorioId = null;
-            if (salvar_historico) {
-                // 1. Criar o cabeçalho do relatório
-                // Nome Ex: "folha 01-202512" (timestamp)
-                const timestamp = new Date().getTime();
-                const nomeRelatorio = `${tipo} ${timestamp}`;
-
-                const { data: relCriado, error: errCriacao } = await supabase
-                    .from('relatorios_gerados')
-                    .insert({
-                        nome: nomeRelatorio,
-                        tipo: tipo,
-                        mes_referencia: periodo?.mes,
-                        ano_referencia: periodo?.ano,
-                        filtros_usados: { cpfs: cpfsFormatados, opcoes },
-                        status: 'gerado'
-                    })
-                    .select()
-                    .single();
-
-                if (errCriacao) {
-                    console.error('Erro ao salvar cabeçalho do relatório:', errCriacao);
-                    // Não aborta a resposta, apenas loga
-                } else {
-                    relatorioId = relCriado.id;
-
-                    // 2. Salvar os itens (linhas)
-                    const itensParaSalvar = resultado.dados.map(linha => ({
-                        relatorio_id: relatorioId,
-                        colaborador_id: linha.colaborador_id || null, // Novo campo
-                        cpf: linha.cpf || null,
-                        nome_colaborador: linha.nome_completo || linha.nome,
-                        dados_snapshot: linha
-                    }));
-
-                    if (itensParaSalvar.length > 0) {
-                        const { error: errItens } = await supabase
-                            .from('relatorios_itens')
-                            .insert(itensParaSalvar);
-
-                        if (errItens) console.error('Erro ao salvar itens do relatório:', errItens);
-                    }
-                }
-            }
-
-            res.json({
+            res.status(200).json({
                 success: true,
-                tipo,
-                relatorio_id: relatorioId,
-                dados: resultado.dados,
-                totais: resultado.totais,
-                layout: resultado.layout,
-                metadata: {
-                    total_colaboradores: cpfsFormatados.length,
-                    periodo: periodo,
-                    gerado_em: new Date().toISOString()
-                }
+                ...resultado
             });
 
         } catch (error) {
-            console.error('Erro ao gerar relatório:', error);
-            res.status(500).json({ success: false, error: error.message });
+            console.error('Erro no controller de relatórios:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message
+            });
         }
     },
 
-    // ===== BUSCAR COLABORADORES COM FILTROS =====
+    // ===== BUSCAR COLABORADORES COM FILTROS (ATUALIZADO PARA PREENCHIMENTO DO GAS) =====
     async buscarComFiltros(req, res) {
         try {
-            console.log('--- BUSCAR COM FILTROS CHAMADO ---');
-            console.log('Body recebido:', JSON.stringify(req.body, null, 2));
-
+            console.log('--- BUSCAR COM FILTROS CHAMADO (V3 - DEBUG) ---');
             const { filtros } = req.body;
-            // Filtros esperados: { nome, cpf, departamento, cargo, status }
+            const benefitCalculator = require('../utils/benefitCalculator');
 
             let query = supabase
                 .from('colaboradores')
-                .select('id, cpf, nome_completo, departamento, cargo, status, data_admissao, email, telefone, matricula, codigo_folha, local_trabalho, cidade, data_nascimento')
+                .select('id, cpf, nome_completo, departamento, cargo, status, data_admissao, email, telefone, matricula, codigo_folha, local_trabalho, cidade, data_nascimento, salario_base')
                 .order('nome_completo', { ascending: true });
 
             if (filtros) {
-                console.log('Aplicando filtros:', filtros);
-                if (filtros.nome) {
-                    query = query.ilike('nome_completo', `%${filtros.nome}%`);
-                }
-                if (filtros.cpf) {
-                    const cpfLimpo = filtros.cpf.replace(/\D/g, '');
-                    console.log('Filtrando por CPF:', cpfLimpo);
-                    query = query.eq('cpf', cpfLimpo);
-                }
-                if (filtros.departamento) {
-                    query = query.eq('departamento', filtros.departamento);
-                }
-                if (filtros.cargo) {
-                    query = query.ilike('cargo', `%${filtros.cargo}%`);
-                }
-                if (filtros.status) {
-                    query = query.eq('status', filtros.status);
-                }
-            } else {
-                console.log('Nenhum filtro fornecido no objeto filtros');
+                if (filtros.nome) query = query.ilike('nome_completo', `%${filtros.nome}%`);
+                if (filtros.cpf) query = query.eq('cpf', filtros.cpf.replace(/\D/g, ''));
+                if (filtros.status) query = query.eq('status', filtros.status);
             }
 
-            const { data, error } = await query;
-
+            const { data: colabs, error } = await query;
             if (error) throw error;
 
-            console.log('Registros encontrados:', data ? data.length : 0);
-            if (data && data.length > 0) {
-                console.log('Exemplo de registro (primeiro):', JSON.stringify(data[0], null, 2));
-                console.log('CHAVES ENCONTRADAS NO BANCO:', Object.keys(data[0]));
+            console.log(`Encontrados ${colabs.length} colaboradores.`);
+            if (colabs.length > 0) {
+                console.log(`Exemplo de ID: ${colabs[0].id}`);
+            }
+
+            // --- CARREGAR DADOS AUXILIARES EM MASSA ---
+            const ids = colabs.map(c => c.id);
+
+            // 1. Planos Ativos
+            console.log(`Buscando planos ativos para ${ids.length} IDs...`);
+            const { data: vinculos, error: linkError } = await supabase
+                .from('colaboradores_planos')
+                .select('*, plano:planos(*)')
+                .in('colaborador_id', ids)
+                .eq('ativo', true);
+
+            if (linkError) {
+                console.error('Erro ao buscar vinculos:', linkError);
+            }
+            console.log(`Vinculos retornados: ${vinculos ? vinculos.length : 0}`);
+
+            // 2. Preços
+            const { data: todosPrecos } = await supabase.from('planos_precos').select('*');
+            console.log(`Preços retornados: ${todosPrecos ? todosPrecos.length : 0}`);
+
+            // Map de preços por PlanoID
+            const precosPorPlano = {};
+            if (todosPrecos) {
+                todosPrecos.forEach(pp => {
+                    if (!precosPorPlano[pp.plano_id]) precosPorPlano[pp.plano_id] = [];
+                    precosPorPlano[pp.plano_id].push(pp);
+                });
+            }
+
+            // 3. Dependentes (para calcular custos)
+            const { data: todosDependentes } = await supabase
+                .from('dependentes')
+                .select('*')
+                .in('colaborador_id', ids);
+            const depPorColab = {};
+            if (todosDependentes) {
+                todosDependentes.forEach(d => {
+                    if (!depPorColab[d.colaborador_id]) depPorColab[d.colaborador_id] = [];
+                    depPorColab[d.colaborador_id].push(d);
+                });
+            }
+
+            // --- PROCESSAR ENRIQUECIMENTO ---
+            const enrichedData = [];
+
+            for (const c of colabs) {
+                const idade = benefitCalculator.calcularIdade(c.data_nascimento);
+
+                // Defaults
+                let item = {
+                    ...c,
+                    idade: idade,
+                    faixa_etaria: '',
+                    convenio_escolhido: '',
+                    vl_100_amil: 0,
+                    vl_empresa_amil: 0,
+                    vl_func_amil: 0,
+                    amil_saude_dep: 0,
+                    odont_func: 0,
+                    odont_dep: 0
+                };
+
+                // Achar planos do colaborador
+                const meusVinculos = vinculos ? vinculos.filter(v => v.colaborador_id === c.id) : [];
+                // console.log(`Colab ${c.nome_completo} tem ${meusVinculos.length} vinculos`);
+
+                for (const v of meusVinculos) {
+                    if (!v.plano) {
+                        console.warn(`Vinculo ${v.id} sem plano associado!`);
+                        continue;
+                    }
+                    const p = v.plano;
+                    const precos = precosPorPlano[p.plano_id] || precosPorPlano[p.id] || [];
+
+                    if (precos.length === 0) {
+                        console.warn(`Plano ${p.nome} (ID ${p.id}) sem preços cadastrados!`);
+                    }
+
+                    if (p.tipo === 'SAUDE') {
+                        item.convenio_escolhido = p.nome;
+
+                        // Custo Titular
+                        const precoTitular = benefitCalculator.encontrarPreco(precos, idade);
+
+                        const faixaObj = precos.find(price => parseFloat(price.valor) === parseFloat(precoTitular));
+                        if (faixaObj) {
+                            item.faixa_etaria = faixaObj.faixa_etaria;
+                        } else {
+                            item.faixa_etaria = `${idade} anos`;
+                        }
+
+                        const calc = benefitCalculator.calcularSaudeTitular(precoTitular);
+                        item.vl_100_amil = calc.valor_total;
+                        item.vl_empresa_amil = calc.parte_empresa;
+                        item.vl_func_amil = calc.parte_funcionario;
+
+                        // Custo Dependentes (Iteração Manual)
+                        const meusDeps = depPorColab[c.id] || [];
+                        let custoDeps = 0;
+                        for (const dep of meusDeps) {
+                            const idDep = benefitCalculator.calcularIdade(dep.data_nasc);
+                            custoDeps += benefitCalculator.encontrarPreco(precos, idDep);
+                        }
+                        item.amil_saude_dep = custoDeps;
+                    }
+
+                    if (p.tipo === 'ODONTO') {
+                        const precoOdonto = precos.length > 0 ? parseFloat(precos[0].valor) : 0;
+                        item.odont_func = precoOdonto;
+
+                        const meusDeps = depPorColab[c.id] || [];
+                        item.odont_dep = meusDeps.length * precoOdonto;
+                    }
+                }
+
+                enrichedData.push(item);
             }
 
             res.json({
                 success: true,
-                colaboradores: data,
-                total: data.length
+                colaboradores: enrichedData,
+                total: enrichedData.length
             });
 
         } catch (error) {
-            console.error('Erro ao buscar colaboradores:', error);
+            console.error('Erro ao buscar colaboradores com filtros:', error);
             res.status(500).json({ success: false, error: error.message });
         }
     },
@@ -210,26 +237,17 @@ const relatoriosController = {
         try {
             const { id } = req.params;
 
-            // Buscar cabeçalho
-            const { data: header, error: errHeader } = await supabase
+            const { data: relatorio, error } = await supabase
                 .from('relatorios_gerados')
-                .select('*')
+                .select('*, itens:relatorios_itens(*)')
                 .eq('id', id)
                 .single();
 
-            if (errHeader) throw errHeader;
+            if (error) throw error;
 
-            // Buscar itens
-            const { data: itens, error: errItens } = await supabase
-                .from('relatorios_itens')
-                .select('*')
-                .eq('relatorio_id', id);
-
-            if (errItens) throw errItens;
-
-            res.json({ success: true, relatorio: header, itens: itens });
+            res.json({ success: true, relatorio });
         } catch (error) {
-            console.error('Erro ao obter detalhes:', error);
+            console.error('Erro ao obter histórico:', error);
             res.status(500).json({ success: false, error: error.message });
         }
     }

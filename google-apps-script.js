@@ -638,10 +638,14 @@ function lancarFolha() {
     const periodo = pedirPeriodo();
     if (!periodo) return;
 
-    criarPlanilhaLancamentoFolha(cpfs, periodo);
+    // Buscar dados detalhados (Cargo, Admissão, etc.) da API
+    const dadosApi = buscarDadosColaboradores(cpfs);
+
+    // Passar dados da API para criação da planilha
+    criarPlanilhaLancamentoFolha(cpfs, periodo, null, dadosApi);
 }
 
-function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
+function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null, dadosApi = []) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
     const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`; // Ex: Lançamento Folha Jan-2025
@@ -659,59 +663,126 @@ function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
         sheet.clear();
     }
 
-    // Buscar nomes dos CPFs (simples lookup na aba Colaboradores para evitar chamada de API lenta)
+    // Buscar nomes dos CPFs
     const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
     const dadosColab = sheetColab.getDataRange().getValues(); // Cache local rápido
     const mapNomes = {};
-    // Assumindo CPF col 2 (index 1), Nome col 3 (index 2) - Ajustado conforme layout atual (Check, CPF, Nome...)
-    for (let i = 5; i < dadosColab.length; i++) { // Linha 6+
-        const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapNomes[cpfLimpo] = dadosColab[i][2];
+    for (let i = 5; i < dadosColab.length; i++) {
+        if (dadosColab[i][1]) {
+            const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
+            mapNomes[cpfLimpo] = dadosColab[i][2];
+        }
     }
 
-    // Cabeçalhos (Mapeados para o Controller)
+    // Helper Local de Idade
+    function calcIdade(dataNasc) {
+        if (!dataNasc) return '';
+        const hoje = new Date();
+        const nasc = new Date(dataNasc);
+        let idade = hoje.getFullYear() - nasc.getFullYear();
+        const m = hoje.getMonth() - nasc.getMonth();
+        if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) {
+            idade--;
+        }
+        return idade;
+    }
+
+    // Cabeçalhos (LAYOUT EXATO 2025)
+    // Removidos: Extras, INSS, Vale Transporte, etc.
     const headers = [
         'CPF', 'Nome', 'Mês', 'Ano',
-        'Salário Base', 'Horas Extras', 'Adic. Noturno', 'Insalubridade', 'Periculosidade', 'Comissões', 'Gratificações', 'Outros Prov.',
-        'INSS', 'IRRF', 'Vale Transp.', 'Vale Refeição', 'Plano Saúde', 'Outros Desc.',
+        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
+        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
+        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
+        'Odont. Func.', 'Odont. Dep.',
         'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
     ];
 
     // Montar linhas
-    // Montar linhas
     const linhas = cpfs.map(cpf => {
-        const nome = mapNomes[cpf] || 'Não encontrado';
-        let d = {};
-        // Se for recuperação, pega o primeiro item do array (Folha é único por CPF)
-        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) d = dadosMap[cpf][0];
+        const cpfLimpo = String(cpf).replace(/\D/g, '');
+        const nome = mapNomes[cpfLimpo] || 'Não encontrado';
 
-        // Se tiver dados, usa. Se não, zero.
+        let d = {};
+        if (dadosMap && dadosMap[cpfLimpo] && dadosMap[cpfLimpo].length > 0) d = dadosMap[cpfLimpo][0];
+
+        // Dados fresquinhos da API (Cadastro)
+        // A API retorna CPF formatado ou limpo? O filter no `buscar` limpou?
+        // buscarDadosColaboradores retorna objetos limpos filtrados.
+        // Vamos achar pelo CPF limpo.
+        const apiData = dadosApi.find(c => String(c.cpf).replace(/\D/g, '') === cpfLimpo) || {};
+
+        const formatDate = (dateStr) => {
+            if (!dateStr) return '';
+            const dt = new Date(dateStr);
+            return isNaN(dt.getTime()) ? '' : dt.toISOString().split('T')[0];
+        };
+
+        const dataNasc = apiData.data_nascimento || d.data_nascimento;
+        const idade = calcIdade(dataNasc);
+
+        // Preenchimento: Prioridade Histórico (se for edição) -> API (Cadastro) -> Default
+        // Mas se dadosMap for null (lançamento novo), é API -> Default.
+        // Se houver dadosMap, supomos que queremos ver o que estava salvo?
+        // Sim, mas o user disse "Lançamento". Geralmente é novo.
+        // Mas se ele recriar a aba de um mês já lançado?
+        // Vamos dar prioridade ao que já foi lançado (d) se existir.
+
         return [
             formatarCPFParaExibicao(cpf), nome, periodo.mes, periodo.ano,
-            d.salario_base || 0, d.horas_extras || 0, d.adicional_noturno || 0, d.insalubridade || 0, d.periculosidade || 0, d.comissoes || 0, d.gratificacoes || 0, d.outros_proventos || 0,
-            d.inss || 0, d.irrf || 0, d.vale_transporte || 0, d.vale_refeicao || 0, d.plano_saude || 0, d.outros_descontos || 0,
+            d.local_trabalho || apiData.local_trabalho || '',
+            formatDate(d.data_admissao || apiData.data_admissao),
+            d.socio || 0,
+            parseFloat(d.salario_base || apiData.salario_base || 0),
+            d.cargo || apiData.cargo || '',
+            d.departamento || apiData.departamento || '',
+            d.convenio_escolhido || apiData.convenio_escolhido || '',
+            formatDate(dataNasc),
+            idade,
+            d.faixa_etaria || apiData.faixa_etaria || '',
+
+            parseFloat(d.vl_100_amil || apiData.vl_100_amil || 0),
+            parseFloat(d.vl_empresa_amil || apiData.vl_empresa_amil || 0),
+            parseFloat(d.vl_func_amil || apiData.vl_func_amil || 0),
+            parseFloat(d.amil_saude_dep || apiData.amil_saude_dep || 0),
+            parseFloat(d.odont_func || apiData.odont_func || 0),
+            parseFloat(d.odont_dep || apiData.odont_dep || 0),
+
             d.status_pagamento || 'pendente',
-            d.data_pagamento ? d.data_pagamento.substring(0, 10) : '',
+            d.data_pagamento ? String(d.data_pagamento).substring(0, 10) : '',
             d.observacoes || ''
         ];
     });
 
-    // Renderizar
+    if (linhas.length === 0) {
+        SpreadsheetApp.getUi().alert('⚠️ Erro', 'Nenhum dado gerado para os CPFs selecionados.', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    // Renderizar Header
     sheet.getRange(1, 1, 1, headers.length).setValues([headers])
         .setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
 
-    sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    // Renderizar Dados (Check bounds)
+    if (linhas.length > 0) {
+        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    }
 
     // Formatação
-    sheet.setColumnWidth(2, 200); // Nome
-    sheet.getRange(2, 5, linhas.length, 14).setNumberFormat('#,##0.00'); // Moeda
+    if (sheet.getMaxColumns() >= 2) sheet.setColumnWidth(2, 200); // Nome
+    if (sheet.getMaxColumns() >= 5) sheet.setColumnWidth(5, 100); // Local
+    if (sheet.getMaxColumns() >= 10) sheet.setColumnWidth(10, 150); // Depto
 
-    // Validação Status
+    // Validação Status (Coluna 21 -> index 20 (0-based) -> Col 21 = U)
+    const colStatus = 21;
     const ruleStatus = SpreadsheetApp.newDataValidation()
         .requireValueInList(['pendente', 'pago'], true)
         .setAllowInvalid(false)
         .build();
-    sheet.getRange(2, 19, linhas.length, 1).setDataValidation(ruleStatus);
+
+    if (linhas.length > 0 && sheet.getMaxColumns() >= colStatus) {
+        sheet.getRange(2, colStatus, linhas.length, 1).setDataValidation(ruleStatus);
+    }
 
     // Travar Colunas CPF/Nome
     sheet.setFrozenColumns(2);
@@ -770,6 +841,15 @@ function enviarFolhaParaAPI() {
         return row[colIndex];
     }
 
+    // Helper para Data
+    function getDateVal(row, keywords) {
+        const val = getVal(row, keywords);
+        if (!val) return null;
+        if (val instanceof Date) return val.toISOString().split('T')[0];
+        // Tenta parsear string DD/MM/YYYY se necessário, ou retorna string crua se formato YYYY-MM-DD
+        return String(val).substring(0, 10);
+    }
+
     const folhas = [];
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
@@ -782,24 +862,34 @@ function enviarFolhaParaAPI() {
             mes_referencia: getVal(row, ['mês', 'mes', 'mes_referencia']) || 0,
             ano_referencia: getVal(row, ['ano', 'ano_referencia']) || 0,
 
-            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
-            horas_extras: getVal(row, ['horas extras', 'horas_extras']) || 0,
-            adicional_noturno: getVal(row, ['adic. noturno', 'adicional noturno', 'adicional_noturno', 'adic_noturno']) || 0,
-            insalubridade: getVal(row, 'insalubridade') || 0,
-            periculosidade: getVal(row, 'periculosidade') || 0,
-            comissoes: getVal(row, ['comissões', 'comissoes']) || 0,
-            gratificacoes: getVal(row, ['gratificações', 'gratificacoes']) || 0,
-            outros_proventos: getVal(row, ['outros prov.', 'outros proventos', 'outros_proventos']) || 0,
+            // Novos Campos 2025
+            local_trabalho: getVal(row, ['local', 'local_trabalho']),
+            data_admissao: getDateVal(row, ['admissão', 'admissao', 'data_admissao']),
+            socio: getVal(row, 'sócio') || 0,
+            novo_salario: getVal(row, ['novo salário', 'novo_salario']) || 0,
+            cargo: getVal(row, 'cargo'),
+            departamento: getVal(row, ['departamento', 'depto']),
+            convenio_escolhido: getVal(row, ['convênio', 'convenio']),
+            data_nascimento: getDateVal(row, ['dn', 'nascimento', 'data_nascimento']),
+            idade: getVal(row, 'idade') || 0,
+            faixa_etaria: getVal(row, ['faixa', 'faixa etária', 'faixa_etaria']),
 
-            inss: getVal(row, 'inss') || 0,
-            irrf: getVal(row, 'irrf') || 0,
-            vale_transporte: getVal(row, ['vale transp.', 'vale transporte', 'vale_transporte']) || 0,
-            vale_refeicao: getVal(row, ['vale refeição', 'vale refeicao', 'vale_refeicao']) || 0,
-            plano_saude: getVal(row, ['plano saúde', 'plano saude', 'plano_saude']) || 0,
-            outros_descontos: getVal(row, ['outros desc.', 'outros descontos', 'outros_descontos']) || 0,
+            vl_100_amil: getVal(row, ['vl 100% amil', 'vl_100_amil']) || 0,
+            vl_empresa_amil: getVal(row, ['vl empresa amil', 'vl_empresa_amil']) || 0,
+            vl_func_amil: getVal(row, ['vl func. amil', 'vl_func_amil']) || 0,
+            amil_saude_dep: getVal(row, ['amil saúde dep', 'amil_saude_dep']) || 0,
+
+            odont_func: getVal(row, ['odont. func.', 'odont_func']) || 0,
+            odont_dep: getVal(row, ['odont. dep.', 'odont_dep']) || 0,
+
+            // Campos Legados Removidos da Interface de Lançamento
+            // Backend ainda suporta se vierem, mas script não envia mais se não tiver na planilha
+            // Se necessário manter compatibilidade, enviamos zero
+            // (Para não quebrar validadores de schema estrito no backend se houver)
+            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
 
             status_pagamento: String(getVal(row, ['status', 'status_pagamento']) || 'pendente').toLowerCase(),
-            data_pagamento: getVal(row, ['data pagto', 'data pagamento', 'data_pagamento']) ? new Date(getVal(row, ['data pagto', 'data pagamento'])).toISOString().split('T')[0] : null,
+            data_pagamento: getDateVal(row, ['data pagto', 'data pagamento', 'data_pagamento']),
             observacoes: getVal(row, ['obs', 'observacoes', 'observações']) || ''
         });
     }
@@ -851,8 +941,8 @@ function buscarDadosColaboradores(cpfs) {
         const res = JSON.parse(response.getContentText());
 
         if (res.success) {
-            const cpfsLimpos = cpfs.map(c => String(c).replace(/\D/g, ''));
-            return res.colaboradores.filter(c => cpfsLimpos.includes(String(c.cpf).replace(/\D/g, '')));
+            // Retorna todos os encontrados (o filtro final é feito na função de criar planilha)
+            return res.colaboradores || [];
         } else {
             return [];
         }

@@ -2511,13 +2511,18 @@ function atualizarDependenteAPI(id, dependente) {
     var url = '';
     try {
         url = CONFIG.API_URL + '/dependentes/' + id;
-        console.log('PUT Dependente URL:', url);
-        console.log('Payload:', JSON.stringify(dependente));
+        
+        // Remove CPF do payload para garantir que nao vá
+        var payloadFinal = JSON.parse(JSON.stringify(dependente));
+        delete payloadFinal.cpf;
+
+        console.log('PUT Dependente URL (V2):', url);
+        console.log('Payload V2:', JSON.stringify(payloadFinal));
 
         var options = {
             method: 'put',
             contentType: 'application/json',
-            payload: JSON.stringify(dependente),
+            payload: JSON.stringify(payloadFinal),
             muteHttpExceptions: true
         };
         var response = UrlFetchApp.fetch(url, options);

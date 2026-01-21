@@ -38,7 +38,8 @@ module.exports = {
             plano:planos(*)
         `)
                 .eq('colaborador_id', id)
-                .eq('ativo', true);
+                .eq('colaborador_id', id);
+                // .eq('ativo', true); // Removido para permitir carregar planos inativos no modal (e reativar ao salvar)
 
             if (error) throw error;
 

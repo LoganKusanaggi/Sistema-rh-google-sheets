@@ -39,7 +39,7 @@ module.exports = {
         `)
                 .eq('colaborador_id', id)
                 .eq('colaborador_id', id);
-                // .eq('ativo', true); // Removido para permitir carregar planos inativos no modal (e reativar ao salvar)
+            // .eq('ativo', true); // Removido para permitir carregar planos inativos no modal (e reativar ao salvar)
 
             if (error) throw error;
 
@@ -97,47 +97,24 @@ module.exports = {
                 }
             }
 
-            // 2. Upsert the target plan
-            const { data: existing, error: findError } = await supabase
+            // 2. Atomic UPSERT using separate query to avoid race conditions
+            // We use upsert with onConflict to handle the unique constraint gracefully
+            const { data, error: upsertError } = await supabase
                 .from('colaboradores_planos')
-                .select('id')
-                .eq('colaborador_id', id)
-                .eq('plano_id', pid)
-                .maybeSingle();
+                .upsert({
+                    colaborador_id: id,
+                    plano_id: pid,
+                    matricula: matricula || null,
+                    dependentes: depsCount || 0,
+                    ativo: true
+                }, {
+                    onConflict: 'colaborador_id,plano_id',
+                    ignoreDuplicates: false // We want to update if exists
+                })
+                .select()
+                .single();
 
-            if (findError) throw findError;
-
-            let data;
-            if (existing) {
-                // Update existing
-                const { data: updated, error: uError } = await supabase
-                    .from('colaboradores_planos')
-                    .update({
-                        matricula: matricula || null,
-                        dependentes: depsCount || 0,
-                        ativo: true
-                    })
-                    .eq('id', existing.id)
-                    .select()
-                    .single();
-                if (uError) throw uError;
-                data = updated;
-            } else {
-                // Insert new
-                const { data: inserted, error: iError } = await supabase
-                    .from('colaboradores_planos')
-                    .insert({
-                        colaborador_id: id,
-                        plano_id: pid,
-                        matricula: matricula || null,
-                        dependentes: depsCount || 0,
-                        ativo: true
-                    })
-                    .select()
-                    .single();
-                if (iError) throw iError;
-                data = inserted;
-            }
+            if (upsertError) throw upsertError;
 
             res.json({ success: true, message: 'Plano salvo com sucesso.' });
 

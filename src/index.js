@@ -25,6 +25,13 @@ app.use((req, res, next) => {
 // Rotas
 app.use('/api', routes);
 
+// FIX EMERGÊNCIA: Rota explícita para dependentes
+const dependentesController = require('./controllers/dependentesController');
+app.put('/api/dependentes/:id', (req, res, next) => {
+    console.log('[DEBUG INDEX] Acessou PUT /api/dependentes/:id');
+    next();
+}, dependentesController.atualizar);
+
 // Rota raiz
 app.get('/', (req, res) => {
     res.json({

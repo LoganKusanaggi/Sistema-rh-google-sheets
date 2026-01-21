@@ -373,6 +373,22 @@ const folhaController = {
                 cpfToData[c.cpf] = c;
             });
 
+            // Carregar preços de planos em memória (cache simples)
+            const { data: todosPlanosPrecos } = await supabase
+                .from('planos_precos')
+                .select('*, plano:planos(tipo)');
+
+            // Map de preços por plano
+            const precosPorPlano = {};
+            if (todosPlanosPrecos) {
+                todosPlanosPrecos.forEach(pp => {
+                    if (!precosPorPlano[pp.plano_id]) precosPorPlano[pp.plano_id] = [];
+                    precosPorPlano[pp.plano_id].push(pp);
+                });
+            }
+
+            const benefitCalculator = require('../utils/benefitCalculator');
+
             // Processar folhas - NOVA ESTRUTURA DO TEMPLATE
             const folhasFormatadas = [];
 
@@ -384,52 +400,110 @@ const folhaController = {
                     // Buscar por nome
                     const { data: colabData } = await supabase
                         .from('colaboradores')
-                        .select('id, cpf, nome_completo')
+                        .select('id, cpf, nome_completo, departamento, cargo, data_nascimento, data_admissao, local_trabalho')
                         .ilike('nome_completo', `%${f.nome_colaborador}%`)
                         .limit(1)
                         .single();
                     colab = colabData;
                 } else if (f.cpf) {
                     // Fallback: buscar por CPF se fornecido
-                    colab = cpfToData[formatarCPF(f.cpf)];
+                    const cpfLimpo = formatarCPF(f.cpf);
+                    const { data: colabData } = await supabase
+                        .from('colaboradores')
+                        .select('id, cpf, nome_completo, departamento, cargo, data_nascimento, data_admissao, local_trabalho')
+                        .eq('cpf', cpfLimpo)
+                        .single();
+                    colab = colabData ? colabData : cpfToData[cpfLimpo];
                 }
 
                 if (!colab) continue;
 
+                // --- CÁLCULO AUTOMÁTICO DE BENEFÍCIOS ---
+                // Buscar planos ativos do colaborador
+                const { data: planosAtivos } = await supabase
+                    .from('colaboradores_planos')
+                    .select('*, plano:planos(id, nome, tipo)')
+                    .eq('colaborador_id', colab.id)
+                    .eq('ativo', true);
+
+                let calcSaude = { valor_total: 0, parte_empresa: 0, parte_funcionario: 0 };
+                let custDepSaude = 0;
+                let custOdontoFunc = 0;
+                let custDepOdonto = 0;
+                let convenioNome = null;
+
+                const idade = benefitCalculator.calcularIdade(colab.data_nascimento);
+                let faixaEtaria = '';
+
+                if (planosAtivos) {
+                    for (const vinculo of planosAtivos) {
+                        const p = vinculo.plano;
+                        const precos = precosPorPlano[p.id] || [];
+
+                        // SAUDE
+                        if (p.tipo === 'SAUDE') {
+                            convenioNome = p.nome;
+
+                            // Custo Titular (Baseado na Idade)
+                            const precoTitular = benefitCalculator.encontrarPreco(precos, idade);
+                            calcSaude = benefitCalculator.calcularSaudeTitular(precoTitular);
+
+                            // Faixa Etária (Visual)
+                            const faixaObj = precos.find(price => price.valor == precoTitular); // Aproximação
+                            faixaEtaria = faixaObj ? faixaObj.faixa_etaria : '';
+
+                            // Custo Dependentes
+                            custDepSaude = await benefitCalculator.calcularDependentes(supabase, colab.id, p.id, 'SAUDE', precos);
+                        }
+
+                        // ODONTO
+                        if (p.tipo === 'ODONTO') {
+                            // Custo Titular (Geralmente fixo, pega o primeiro preço)
+                            const precoOdonto = precos.length > 0 ? parseFloat(precos[0].valor) : 0;
+                            custOdontoFunc = precoOdonto;
+
+                            // Custo Dependentes
+                            custDepOdonto = await benefitCalculator.calcularDependentes(supabase, colab.id, p.id, 'ODONTO', precos);
+                        }
+                    }
+                }
+
                 folhasFormatadas.push({
                     colaborador_id: colab.id,
                     cpf: colab.cpf,
-                    nome_colaborador: f.nome_colaborador || colab.nome_completo,
+                    nome_colaborador: colab.nome_completo,
                     mes_referencia: parseInt(f.mes_referencia),
                     ano_referencia: parseInt(f.ano_referencia),
 
-                    // Dados básicos do template
-                    local_trabalho: f.local_trabalho || null,
-                    data_admissao: f.data_admissao || null,
-                    socio: f.socio || null,
+                    // Dados básicos do template (Prioridade para dados do Banco, fallback para Planilha)
+                    local_trabalho: colab.local_trabalho || f.local_trabalho,
+                    data_admissao: colab.data_admissao || f.data_admissao,
+                    socio: f.socio ? parseFloat(f.socio) : 0,
                     salario_base: parseFloat(f.salario_base || 0),
-                    novo_salario: f.novo_salario ? parseFloat(f.novo_salario) : null,
-                    cargo: f.cargo || null,
-                    departamento: f.departamento || null,
+                    cargo: colab.cargo || f.cargo,
+                    departamento: colab.departamento || f.departamento,
 
-                    // Plano de Saúde
-                    convenio_escolhido: f.convenio_escolhido || null,
-                    data_nascimento: f.data_nascimento || null,
-                    idade: f.idade ? parseInt(f.idade) : null,
-                    faixa_etaria: f.faixa_etaria || null,
-                    vl_100_amil: parseFloat(f.vl_100_amil || 0),
-                    vl_empresa_amil: parseFloat(f.vl_empresa_amil || 0),
-                    vl_func_amil: parseFloat(f.vl_func_amil || 0),
-                    amil_saude_dep: parseFloat(f.amil_saude_dep || 0),
+                    // Plano de Saúde (Calculados)
+                    convenio_escolhido: convenioNome || null,
+                    data_nascimento: colab.data_nascimento,
+                    idade: idade,
+                    faixa_etaria: faixaEtaria,
+                    vl_100_amil: calcSaude.valor_total,
+                    vl_empresa_amil: calcSaude.parte_empresa,
+                    vl_func_amil: calcSaude.parte_funcionario,
+                    amil_saude_dep: custDepSaude,
 
-                    // Plano Odontológico
-                    odont_func: parseFloat(f.odont_func || 0),
-                    odont_dep: parseFloat(f.odont_dep || 0),
+                    // Plano Odontológico (Calculados)
+                    odont_func: custOdontoFunc,
+                    odont_dep: custDepOdonto,
 
                     // Controle
                     status_pagamento: f.status_pagamento || 'pendente',
                     data_pagamento: f.data_pagamento || null,
-                    observacoes: f.observacoes || null
+                    observacoes: f.observacoes || null,
+
+                    // Totais Legados (Para compatibilidade com dashboard antigo)
+                    plano_saude: calcSaude.parte_funcionario + custDepSaude + custOdontoFunc + custDepOdonto // Total descontado do funcionário
                 });
             }
 

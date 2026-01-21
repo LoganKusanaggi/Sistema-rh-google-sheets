@@ -2507,8 +2507,13 @@ function adicionarDependenteAPI(colaboradorId, dependente) {
 }
 
 function atualizarDependenteAPI(id, dependente) {
+    var raw = '';
+    var url = '';
     try {
-        var url = CONFIG.API_URL + '/dependentes/' + id;
+        url = CONFIG.API_URL + '/dependentes/' + id;
+        console.log('PUT Dependente URL:', url);
+        console.log('Payload:', JSON.stringify(dependente));
+
         var options = {
             method: 'put',
             contentType: 'application/json',
@@ -2516,9 +2521,18 @@ function atualizarDependenteAPI(id, dependente) {
             muteHttpExceptions: true
         };
         var response = UrlFetchApp.fetch(url, options);
-        return JSON.parse(response.getContentText());
+        raw = response.getContentText();
+        console.log('Response Raw:', raw);
+        
+        // Se retornar HTML (erro do express/vercel), trate
+        if (raw.indexOf('<') === 0) {
+            return { success: false, error: 'Erro HTML retornado: ' + raw.substring(0, 50) + '...' };
+        }
+
+        return JSON.parse(raw);
     } catch (e) {
-        return { success: false, error: e.message };
+        console.error('Erro atualizarDependenteAPI:', e);
+        return { success: false, error: 'Exc: ' + e.message + ' | Raw: ' + raw };
     }
 }
 

@@ -15,5 +15,6 @@ const dependentesController = require('../controllers/dependentesController');
 router.get('/colaboradores/:colaboradorId/dependentes', dependentesController.listar);
 router.post('/colaboradores/:colaboradorId/dependentes', dependentesController.adicionar);
 router.delete('/dependentes/:id', dependentesController.remover);
+router.put('/dependentes/:id', dependentesController.atualizar);
 
 module.exports = router;

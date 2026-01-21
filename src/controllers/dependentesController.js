@@ -63,6 +63,38 @@ module.exports = {
         }
     },
 
+    // Atualizar dependente
+    async atualizar(req, res) {
+        try {
+            const { id } = req.params;
+            const { nome, data_nasc, parentesco, matricula } = req.body;
+
+            // Validação
+            if (!nome || !data_nasc || !parentesco) {
+                return res.status(400).json({ success: false, error: 'Nome, Data de Nascimento e Parentesco são obrigatórios.' });
+            }
+
+            const { data, error } = await supabase
+                .from('dependentes')
+                .update({
+                    nome,
+                    data_nasc,
+                    parentesco,
+                    matricula
+                })
+                .eq('id', id)
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            res.json({ success: true, data, message: 'Dependente atualizado com sucesso.' });
+        } catch (error) {
+            console.error('Erro ao atualizar dependente:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
     // Remover dependente
     async remover(req, res) {
         try {

@@ -567,14 +567,9 @@ function aplicarLayoutRelatorio(sheet, tipo, dados) {
 
     // DADOS
     if (layout.dados && layout.dados.length > 0) {
-        const dadosTabela = layout.dados.map((linha, idx) => {
+        const dadosTabela = layout.dados.map(linha => {
             return layout.colunas.map(col => {
                 const valor = linha[col.campo];
-
-                // DEBUG RENDERING only for first row/first col
-                if (idx === 0 && col.campo === layout.colunas[0].campo) {
-                    console.log(`RENDER CHECK: Campo=${col.campo}, Valor=${valor}, Tipo=${typeof valor}`);
-                }
 
                 // Formatar valor baseado no tipo
                 if (col.formato === 'moeda' && typeof valor === 'number') {
@@ -726,9 +721,8 @@ function enviarFolhaParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    // Validação mais flexível: Aceita "Lançamento Folha" ou "V. ... folha ..." (Restaurada)
-    if (!nomeAba.toLowerCase().includes('folha')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba de "Folha" (Lançamento ou Histórico) para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
+    if (!nomeAba.includes('Lançamento Folha')) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha ..." para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -743,64 +737,34 @@ function enviarFolhaParaAPI() {
         return;
     }
 
-    const headers = data[0].map(h => String(h).trim().toLowerCase());
-
-    // Helper para buscar valor dinamicamente
-    function getVal(row, keywords) {
-        const keys = Array.isArray(keywords) ? keywords : [keywords];
-        let colIndex = -1;
-
-        // 1. Tenta match exato ou parcial
-        for (const k of keys) {
-            colIndex = headers.findIndex(h => h === k || h.includes(k));
-            if (colIndex > -1) break;
-        }
-
-        // 2. Tenta normalizar (remover acentos)
-        if (colIndex === -1) {
-            const normalizedHeaders = headers.map(h => h.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
-            for (const k of keys) {
-                const kNorm = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                colIndex = normalizedHeaders.findIndex(h => h === kNorm || h.includes(kNorm));
-                if (colIndex > -1) break;
-            }
-        }
-
-        if (colIndex === -1) return null;
-        return row[colIndex];
-    }
-
     const folhas = [];
+    // Mapeamento baseado na ordem das colunas em lancarFolha
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-
-        const cpfRaw = getVal(row, 'cpf');
+        const cpfRaw = String(row[0]);
         if (!cpfRaw) continue;
 
         folhas.push({
-            cpf: String(cpfRaw).replace(/\D/g, ''),
-            mes_referencia: getVal(row, ['mês', 'mes', 'mes_referencia']) || 0,
-            ano_referencia: getVal(row, ['ano', 'ano_referencia']) || 0,
-
-            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
-            horas_extras: getVal(row, ['horas extras', 'horas_extras']) || 0,
-            adicional_noturno: getVal(row, ['adic. noturno', 'adicional noturno', 'adicional_noturno', 'adic_noturno']) || 0,
-            insalubridade: getVal(row, 'insalubridade') || 0,
-            periculosidade: getVal(row, 'periculosidade') || 0,
-            comissoes: getVal(row, ['comissões', 'comissoes']) || 0,
-            gratificacoes: getVal(row, ['gratificações', 'gratificacoes']) || 0,
-            outros_proventos: getVal(row, ['outros prov.', 'outros proventos', 'outros_proventos']) || 0,
-
-            inss: getVal(row, 'inss') || 0,
-            irrf: getVal(row, 'irrf') || 0,
-            vale_transporte: getVal(row, ['vale transp.', 'vale transporte', 'vale_transporte']) || 0,
-            vale_refeicao: getVal(row, ['vale refeição', 'vale refeicao', 'vale_refeicao']) || 0,
-            plano_saude: getVal(row, ['plano saúde', 'plano saude', 'plano_saude']) || 0,
-            outros_descontos: getVal(row, ['outros desc.', 'outros descontos', 'outros_descontos']) || 0,
-
-            status_pagamento: String(getVal(row, ['status', 'status_pagamento']) || 'pendente').toLowerCase(),
-            data_pagamento: getVal(row, ['data pagto', 'data pagamento', 'data_pagamento']) ? new Date(getVal(row, ['data pagto', 'data pagamento'])).toISOString().split('T')[0] : null,
-            observacoes: getVal(row, ['obs', 'observacoes', 'observações']) || ''
+            cpf: cpfRaw.replace(/\D/g, ''),
+            mes_referencia: row[2],
+            ano_referencia: row[3],
+            salario_base: row[4],
+            horas_extras: row[5],
+            adicional_noturno: row[6],
+            insalubridade: row[7],
+            periculosidade: row[8],
+            comissoes: row[9],
+            gratificacoes: row[10],
+            outros_proventos: row[11],
+            inss: row[12],
+            irrf: row[13],
+            vale_transporte: row[14],
+            vale_refeicao: row[15],
+            plano_saude: row[16],
+            outros_descontos: row[17],
+            status_pagamento: row[18] ? String(row[18]).toLowerCase() : 'pendente',
+            data_pagamento: row[19] ? new Date(row[19]).toISOString().split('T')[0] : null,
+            observacoes: row[20]
         });
     }
 
@@ -819,8 +783,8 @@ function enviarFolhaParaAPI() {
         if (resultado.success) {
             ui.alert('✅ Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
 
-            // Perguntar se deseja excluir (sempre, seja Lançamento ou Snapshot)
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba para manter a planilha organizada?', ui.ButtonSet.YES_NO);
+            // Perguntar se deseja excluir
+            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento para manter a planilha organizada?', ui.ButtonSet.YES_NO);
             if (respDel == ui.Button.YES) {
                 try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
             }
@@ -2201,82 +2165,34 @@ function mostrarModalEdicao(colaborador) {
 
       function carregarPlanosDoUsuario() {
           var id = document.getElementById('colaborador_id').value;
-          console.log('Carregando planos para colaborador ID:', id);
-
           google.script.run.withSuccessHandler(function(res) {
-              console.log('Resposta API Planos Usuario:', res);
-
               if (res.success && res.data) {
                   res.data.forEach(function(pu) {
-                      if (!pu.plano) {
-                          console.warn('Plano nulo para vínculo:', pu);
-                          return;
-                      }
-
-                      var tipo = (pu.plano.tipo || '').toUpperCase();
-                      console.log('Processando plano:', tipo, pu.plano.nome);
-
-                      if (tipo === 'SAUDE') {
-                          var elSaude = document.getElementById('plano_saude');
-                          elSaude.value = pu.plano_id;
-                          
-                          // Verificacao se setou corretamente (pode falhar se options nao carregaram ainda)
-                          if (elSaude.value != pu.plano_id) {
-                              console.warn('Falha ao setar select Saude. ID esperado:', pu.plano_id, 'Valor atual:', elSaude.value);
-                              // Tenta forcar string
-                              elSaude.value = String(pu.plano_id);
-                          }
-
+                      if (pu.plano && pu.plano.tipo === 'SAUDE') {
+                          document.getElementById('plano_saude').value = pu.plano_id;
                           var mat = pu.matricula || pu.carteirinha || pu.numero_carteirinha;
                           if (mat) document.getElementById('matricula_saude').value = mat;
                       }
-                      if (tipo === 'ODONTO') {
-                          var elOdonto = document.getElementById('plano_odonto');
-                          elOdonto.value = pu.plano_id;
-                          if (elOdonto.value != pu.plano_id) {
-                               elOdonto.value = String(pu.plano_id);
-                          }
+                      if (pu.plano && pu.plano.tipo === 'ODONTO') {
+                          document.getElementById('plano_odonto').value = pu.plano_id;
                       }
                   });
-              } else {
-                  console.warn('Nenhum plano retornado ou erro:', res);
               }
           }).buscarPlanosColaboradorAPI(id);
-          
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px dashed #ccc;">
-          <input type="hidden" id="dep_id">
-          <label style="margin-top:0; color:#1a73e8;" id="titulo_dep">➕ Adicionar Dependente:</label>
-          <div class="row">
-            <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex: 2;">
-            <input type="text" id="dep_cpf" placeholder="CPF" style="flex: 1;">
-            <input type="date" id="dep_nasc" style="flex: 1;">
-          </div>
-          <div class="row">
-            <select id="dep_parentesco" style="flex: 1;">
-              <option value="">Parentesco...</option>
-              <option value="Filho(a)">Filho(a)</option>
-              <option value="Conjuge">Cônjuge</option>
-              <option value="Pai/Mae">Pai/Mãe</option>
-            </select>
-            <input type="text" id="dep_matricula" placeholder="Matrícula (Opcional)" style="flex: 1;">
-            <div style="display:flex; gap:5px;">
-                <button type="button" id="btn_salvar_dep" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
-                <button type="button" id="btn_cancelar_dep" onclick="cancelarEdicaoDependente()" class="btn btn-secondary" style="margin: 5px 0 0 0; padding: 8px 15px; display:none;">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      </div>
+          carregarDependentesUI(id);
+      }
 
-      <div style="margin-top: 25px; text-align: right; border-top: 1px solid #eee; padding-top: 15px;">
-        <button type="button" onclick="google.script.host.close()" class="btn btn-secondary">❌ Cancelar</button>
-        <button type="submit" class="btn btn-primary">💾 Salvar Alterações</button>
-      </div>
-    </form>
-    
-    <div id="mensagem" style="margin-top: 20px; padding: 15px; display: none; border-radius: 6px;"></div>
-    
-    <script>
-      // ... (previous functions) ...
+      function carregarDependentesUI(colabId) {
+          var div = document.getElementById('lista_dependentes');
+          div.innerHTML = '🔄 Carregando...';
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success) {
+                  renderizarDependentes(res.data);
+              } else {
+                  div.innerHTML = '❌ Erro ao carregar dependentes.';
+              }
+          }).listarDependentesAPI(colabId);
+      }
 
       function renderizarDependentes(lista) {
           var div = document.getElementById('lista_dependentes');
@@ -2286,14 +2202,10 @@ function mostrarModalEdicao(colaborador) {
           }
           var html = '<table style="width:100%; border-collapse: collapse;">';
           lista.forEach(function(d) {
-              // Prepare params safely for onclick
-              var dadosSafe = JSON.stringify(d).replace(/"/g, '&quot;');
-              
               html += '<tr style="border-bottom: 1px solid #eee;">' +
                       '<td style="padding: 8px;">' + d.nome + '</td>' +
                       '<td style="padding: 8px; color: #666;">' + d.parentesco + '</td>' +
                       '<td style="text-align:right; padding: 8px;">' +
-                      '<span style="cursor:pointer; color:#1a73e8; font-weight:bold; margin-right:10px;" onclick="prepararEdicaoDependente(' + dadosSafe + ')">✏️ Editar</span>' +
                       '<span style="cursor:pointer; color:#d93025; font-weight:bold;" onclick="removerDependenteUI(\\'' + d.id + '\\')">🗑️ Excluir</span>' +
                       '</td></tr>';
           });
@@ -2301,41 +2213,8 @@ function mostrarModalEdicao(colaborador) {
           div.innerHTML = html;
       }
 
-      function prepararEdicaoDependente(d) {
-          document.getElementById('dep_id').value = d.id;
-          document.getElementById('dep_nome').value = d.nome;
-          document.getElementById('dep_cpf').value = d.cpf || '';
-          document.getElementById('dep_cpf').disabled = true; // CPF nao editavel
-          document.getElementById('dep_nasc').value = d.data_nasc ? d.data_nasc.split('T')[0] : '';
-          document.getElementById('dep_parentesco').value = d.parentesco;
-          document.getElementById('dep_matricula').value = d.matricula || '';
-          
-          document.getElementById('titulo_dep').innerText = '✏️ Editar Dependente:';
-          document.getElementById('btn_salvar_dep').textContent = 'Salvar Alteração';
-          document.getElementById('btn_cancelar_dep').style.display = 'block';
-          
-          // Scroll to form
-          document.getElementById('titulo_dep').scrollIntoView({ behavior: 'smooth' });
-      }
-
-      function cancelarEdicaoDependente() {
-          document.getElementById('dep_id').value = '';
-          document.getElementById('dep_nome').value = '';
-          document.getElementById('dep_cpf').value = '';
-          document.getElementById('dep_cpf').disabled = false;
-          document.getElementById('dep_nasc').value = '';
-          document.getElementById('dep_parentesco').value = '';
-          document.getElementById('dep_matricula').value = '';
-          
-          document.getElementById('titulo_dep').innerText = '➕ Adicionar Dependente:';
-          document.getElementById('btn_salvar_dep').textContent = 'Adicionar';
-          document.getElementById('btn_cancelar_dep').style.display = 'none';
-      }
-
       function adicionarDependenteUI(btn) {
           var id = document.getElementById('colaborador_id').value;
-          var depId = document.getElementById('dep_id').value;
-          
           var nome = document.getElementById('dep_nome').value;
           var cpf = document.getElementById('dep_cpf').value;
           var nasc = document.getElementById('dep_nasc').value;
@@ -2350,33 +2229,21 @@ function mostrarModalEdicao(colaborador) {
           btn.disabled = true;
           btn.textContent = '⏳ ...';
 
-          var dadosDep = { nome: nome, cpf: cpf, data_nasc: nasc, parentesco: parentesco, matricula: matricula };
+          var novoDep = { nome: nome, cpf: cpf, data_nasc: nasc, parentesco: parentesco, matricula: matricula };
 
-          if (depId) {
-              // UPDATE
-              google.script.run.withSuccessHandler(function(res) {
-                  btn.disabled = false;
-                  btn.textContent = 'Salvar Alteração';
-                  if (res.success) {
-                      cancelarEdicaoDependente(); // Reset form
-                      carregarDependentesUI(id);
-                  } else {
-                      alert('Erro ao atualizar: ' + res.error);
-                  }
-              }).atualizarDependenteAPI(depId, dadosDep);
-          } else {
-              // CREATE
-              google.script.run.withSuccessHandler(function(res) {
-                  btn.disabled = false;
-                  btn.textContent = 'Adicionar';
-                  if (res.success) {
-                      cancelarEdicaoDependente(); // Reset form
-                      carregarDependentesUI(id);
-                  } else {
-                      alert('Erro ao adicionar: ' + res.error);
-                  }
-              }).adicionarDependenteAPI(id, dadosDep);
-          }
+          google.script.run.withSuccessHandler(function(res) {
+              btn.disabled = false;
+              btn.textContent = 'Adicionar';
+              if (res.success) {
+                  document.getElementById('dep_nome').value = '';
+                  document.getElementById('dep_cpf').value = '';
+                  document.getElementById('dep_nasc').value = '';
+                  document.getElementById('dep_matricula').value = '';
+                  carregarDependentesUI(id);
+              } else {
+                  alert('Erro: ' + res.error);
+              }
+          }).adicionarDependenteAPI(id, novoDep);
       }
 
       function removerDependenteUI(depId) {
@@ -2491,8 +2358,7 @@ function salvarPlanoColaboradorAPI(id, planoId, matricula) {
 
 function listarDependentesAPI(colaboradorId) {
     try {
-        // FIX: Rota correta é /colaboradores/:id/dependentes e não /dependentes?id=...
-        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+        var url = CONFIG.API_URL + '/dependentes?colaborador_id=' + colaboradorId;
         var response = UrlFetchApp.fetch(url);
         return JSON.parse(response.getContentText());
     } catch (e) {
@@ -2502,32 +2368,12 @@ function listarDependentesAPI(colaboradorId) {
 
 function adicionarDependenteAPI(colaboradorId, dependente) {
     try {
-        // FIX: Rota correta aninhada
-        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
-
-        // Payload não precisa do colaborador_id pois vai na URL, mas vamos enviar limpo
-        var payload = dependente;
-
+        var url = CONFIG.API_URL + '/dependentes';
+        var payload = { ...dependente, colaborador_id: colaboradorId };
         var options = {
             method: 'post',
             contentType: 'application/json',
             payload: JSON.stringify(payload),
-            muteHttpExceptions: true
-        };
-        var response = UrlFetchApp.fetch(url, options);
-        return JSON.parse(response.getContentText());
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-}
-
-function atualizarDependenteAPI(id, dependente) {
-    try {
-        var url = CONFIG.API_URL + '/dependentes/' + id;
-        var options = {
-            method: 'put',
-            contentType: 'application/json',
-            payload: JSON.stringify(dependente),
             muteHttpExceptions: true
         };
         var response = UrlFetchApp.fetch(url, options);
@@ -2686,35 +2532,22 @@ function listarHistoricoModal() {
         document.getElementById('content').innerHTML = html;
       }
 
-      function abrirConfirmacao(id, tipo) {
-        const overlay = document.getElementById('confirm-overlay');
-        const btnSim = document.getElementById('btn-confirm-action');
+      function carregarVersao(id, tipo) {
+        if(!confirm('Deseja carregar esta versão em uma nova aba para visualização/edição?')) return;
         
-        // Define a ação do botão Sim
-        btnSim.onclick = function() {
-          carregarVersao(id);
-          fecharConfirmacao();
-        };
-        
-        overlay.style.display = 'flex';
-      }
-
-      function fecharConfirmacao() {
-         document.getElementById('confirm-overlay').style.display = 'none';
-      }
-
-      function carregarVersao(id) {
-        // Mostra loading "global" tosco ou muda botões, aqui vamos simplificar:
-        const contentDiv = document.getElementById('content');
-        contentDiv.innerHTML = '<div class="loading">♻️ Restaurando versão... Aguarde...</div>';
+        const btn = event.target;
+        btn.textContent = 'Carregando...';
+        btn.disabled = true;
 
         google.script.run
           .withSuccessHandler(() => { 
+             alert('Versão carregada com sucesso em nova aba!');
              google.script.host.close();
           })
           .withFailureHandler((err) => {
-             alert('Erro ao carregar versão: ' + err); // Esse alert ainda é nativo, mas é erro fatal
-             carregarHistorico(); // Recarrega
+             alert('Erro ao carregar versão: ' + err);
+             btn.textContent = '📂 Abrir';
+             btn.disabled = false;
           })
           .carregarSnapshotParaAba(id);
       }
@@ -2725,7 +2558,7 @@ function listarHistoricoModal() {
 
       window.onload = carregarHistorico;
     </script>
-  `).setWidth(650).setHeight(550);
+  `).setWidth(600).setHeight(500);
 
     SpreadsheetApp.getUi().showModalDialog(html, 'Histórico de Versões');
 }
@@ -2738,125 +2571,17 @@ function carregarSnapshotParaAba(id) {
     const header = res.relatorio;
     const itens = res.itens;
 
-    // FIX: O `criarAbaRelatorio` espera um objeto 'resultado' completo que tenha .layout e .dados
-    // No banco, salvamos itens individuais. Precisamos reconstruir a estrutura que o relatório original tinha.
+    // Reconstrói o formato de dados esperado por criarAbaRelatorio
+    // ITENS do DB: { dados_snapshot: { ...campos... } }
+    // FORMATO ESPERADO: [ { ...campos... }, { ...campos... } ]
 
-    // 1. Tentar recuperar o layout do primeiro item (assumindo que salvamos o snapshot completo em cada item ou no header)
-    // No controller: dados_snapshot: linha
-    // O layout original NÃO foi salvo explicitamente no `relatorios_gerados` (vimos o insert).
-    // Porém, o `dados_snapshot` de cada linha contém os dados daquela linha.
-    // O `aplicarLayoutRelatorio` precisa de `dados.layout`.
-    // Se não temos o layout salvo, precisamos REGERAR o layout baseando-se no tipo.
-
-    // FIX: Normalizar campo 'nome' que pode vir como 'nome_colaborador' no snapshot
-    const dadosLinhas = itens.map(i => {
-        const d = i.dados_snapshot;
-        if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
-        return d;
-    });
-
-    console.log('--- DEBUG SNAPSHOT ---');
-    if (dadosLinhas.length > 0) {
-        console.log('Primeiro Item (JSON):', JSON.stringify(dadosLinhas[0]));
-        console.log('Chaves:', Object.keys(dadosLinhas[0]));
-    } else {
-        console.log('Nenhum dado encontrado no snapshot.');
-    }
-
-    // Simular a estrutura de retorno do RelatorioService
-    // Precisamos chamar o service para pegar só o layout vazio ou reconstruir manual?
-    // Vamos reconstruir um objeto de dados compatível.
-
-    // HACK INTELIGENTE:
-    // Se não salvamos o layout no banco, vamos "adivinhar" o layout chamando a função de gerar layout localmente 
-    // OU (mais seguro) pegar o layout de uma chamada "fake" de relatório vazio?
-    // Como não temos acesso fácil ao backend "services" aqui no GAS (só via API), vamos confiar que o `dados_snapshot` 
-    // pode ser renderizado se tivermos as colunas.
-
-    // SOLUÇÃO ROBUSTA:
-    // Vamos fazer uma chamada ao endpoint de relatório "gerar" apenas para pegar o layout (dry-run)
-    // OU vamos implementar um layout genérico baseado nas chaves do JSON?
-
-    // Vamos usar a estratégia de "Gerar Relatório Fresco" para pegar o layout atual.
-    // Isso garante que o layout seja compatível com a versão atual do sistema.
-    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
-
-    // Monta o objeto final para o renderizador
-    const layoutGerado = obterLayoutPorTipoAPI(dadosLinhas, header.tipo);
-
-    // FIX CRÍTICO: O 'aplicarLayoutRelatorio' busca os dados dentro de 'layout.dados'
-    layoutGerado.dados = dadosLinhas;
-
-    const resultadoReconstruido = {
-        layout: layoutGerado,
-        dados: dadosLinhas
-    };
+    const dados = itens.map(i => i.dados_snapshot);
 
     const nomeAba = `V. ${header.created_at.substring(0, 10)} - ${header.tipo}`;
+    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
 
-    criarAbaRelatorio(header.tipo, nomeAba, resultadoReconstruido, periodo);
+    // Reutiliza a função de layout existente!
+    criarAbaRelatorio(header.tipo, nomeAba, dados, periodo);
 
     return { success: true };
-}
-
-// Helper para pegar layout atualizado e PADRONIZADO
-function obterLayoutPorTipoAPI(dadosLinhas, tipo) {
-    if (!dadosLinhas.length) return { colunas: [] };
-
-    // 1. Layouts Canônicos (Oficiais do Sistema)
-    // Isso garante que o histórico abra exatamente como um Lançamento Oficial
-    if (tipo === 'folha' || tipo === 'folha_pagamento') {
-        return {
-            colunas: [
-                { nome: 'CPF', campo: 'cpf', largura: 120, formato: 'cpf' },
-                { nome: 'Nome', campo: 'nome', largura: 250 }, // Snapshot as vezes nao tem 'nome', tem 'nome_colaborador'. Vamos tratar no renderizador ou aqui? O renderizador busca 'campo'. Se o snapshot tem 'nome_colaborador', precisamos remapear.
-                { nome: 'Mês', campo: 'mes_referencia', largura: 50 },
-                { nome: 'Ano', campo: 'ano_referencia', largura: 60 },
-                { nome: 'Salário Base', campo: 'salario_base', largura: 100, formato: 'moeda' },
-                { nome: 'Horas Extras', campo: 'horas_extras', largura: 100, formato: 'moeda' },
-                { nome: 'Adic. Noturno', campo: 'adicional_noturno', largura: 100, formato: 'moeda' },
-                { nome: 'Insalubridade', campo: 'insalubridade', largura: 100, formato: 'moeda' },
-                { nome: 'Periculosidade', campo: 'periculosidade', largura: 100, formato: 'moeda' },
-                { nome: 'Comissões', campo: 'comissoes', largura: 100, formato: 'moeda' },
-                { nome: 'Gratificações', campo: 'gratificacoes', largura: 100, formato: 'moeda' },
-                { nome: 'Outros Prov.', campo: 'outros_proventos', largura: 100, formato: 'moeda' },
-                { nome: 'INSS', campo: 'inss', largura: 100, formato: 'moeda' },
-                { nome: 'IRRF', campo: 'irrf', largura: 100, formato: 'moeda' },
-                { nome: 'Vale Transp.', campo: 'vale_transporte', largura: 100, formato: 'moeda' },
-                { nome: 'Vale Refeição', campo: 'vale_refeicao', largura: 100, formato: 'moeda' },
-                { nome: 'Plano Saúde', campo: 'plano_saude', largura: 100, formato: 'moeda' },
-                { nome: 'Outros Desc.', campo: 'outros_descontos', largura: 100, formato: 'moeda' },
-                { nome: 'Status (Pendente/Pago)', campo: 'status_pagamento', largura: 120 },
-                { nome: 'Data Pagto', campo: 'data_pagamento', largura: 100 },
-                { nome: 'Obs', campo: 'observacoes', largura: 150 }
-            ],
-            formatacao: {
-                cabecalho: { bold: true, background: '#4a86e8', color: '#ffffff' },
-                colunas: { bold: true, background: '#f1f3f4' },
-                dados: { zebraStripe: true }
-            }
-        };
-    }
-
-    // Tratamento de compatibilidade para Nomes
-    // Alguns snapshots antigos podem ter 'nome_colaborador' ou 'nome_completo' em vez de 'nome'
-    // Vamos varrer os dados e normalizar isso antes de prosseguir se não for folha
-
-    // 2. Fallback: Layout Dinâmico (Inferred)
-    const primeiroItem = dadosLinhas[0];
-    const chavesIgnoradas = ['id', 'colaborador_id', 'relatorio_id', 'dados_snapshot'];
-    const chaves = Object.keys(primeiroItem).filter(k => !chavesIgnoradas.includes(k));
-
-    return {
-        colunas: chaves.map(k => ({
-            nome: k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, ' '),
-            campo: k,
-            largura: k.length > 20 ? 200 : 120
-        })),
-        formatacao: {
-            cabecalho: { bold: true, background: '#4285f4', color: '#ffffff' }, // Azul mais Google
-            colunas: { bold: true, background: '#f1f3f4' },
-            dados: { zebraStripe: true }
-        }
-    };
 }

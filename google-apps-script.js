@@ -2201,20 +2201,48 @@ function mostrarModalEdicao(colaborador) {
 
       function carregarPlanosDoUsuario() {
           var id = document.getElementById('colaborador_id').value;
+          console.log('Carregando planos para colaborador ID:', id);
+
           google.script.run.withSuccessHandler(function(res) {
+              console.log('Resposta API Planos Usuario:', res);
+
               if (res.success && res.data) {
                   res.data.forEach(function(pu) {
-                      if (pu.plano && pu.plano.tipo === 'SAUDE') {
-                          document.getElementById('plano_saude').value = pu.plano_id;
+                      if (!pu.plano) {
+                          console.warn('Plano nulo para vínculo:', pu);
+                          return;
+                      }
+
+                      var tipo = (pu.plano.tipo || '').toUpperCase();
+                      console.log('Processando plano:', tipo, pu.plano.nome);
+
+                      if (tipo === 'SAUDE') {
+                          var elSaude = document.getElementById('plano_saude');
+                          elSaude.value = pu.plano_id;
+                          
+                          // Verificacao se setou corretamente (pode falhar se options nao carregaram ainda)
+                          if (elSaude.value != pu.plano_id) {
+                              console.warn('Falha ao setar select Saude. ID esperado:', pu.plano_id, 'Valor atual:', elSaude.value);
+                              // Tenta forcar string
+                              elSaude.value = String(pu.plano_id);
+                          }
+
                           var mat = pu.matricula || pu.carteirinha || pu.numero_carteirinha;
                           if (mat) document.getElementById('matricula_saude').value = mat;
                       }
-                      if (pu.plano && pu.plano.tipo === 'ODONTO') {
-                          document.getElementById('plano_odonto').value = pu.plano_id;
+                      if (tipo === 'ODONTO') {
+                          var elOdonto = document.getElementById('plano_odonto');
+                          elOdonto.value = pu.plano_id;
+                          if (elOdonto.value != pu.plano_id) {
+                               elOdonto.value = String(pu.plano_id);
+                          }
                       }
                   });
+              } else {
+                  console.warn('Nenhum plano retornado ou erro:', res);
               }
           }).buscarPlanosColaboradorAPI(id);
+          
           carregarDependentesUI(id);
       }
 
@@ -2394,7 +2422,8 @@ function salvarPlanoColaboradorAPI(id, planoId, matricula) {
 
 function listarDependentesAPI(colaboradorId) {
     try {
-        var url = CONFIG.API_URL + '/dependentes?colaborador_id=' + colaboradorId;
+        // FIX: Rota correta é /colaboradores/:id/dependentes e não /dependentes?id=...
+        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
         var response = UrlFetchApp.fetch(url);
         return JSON.parse(response.getContentText());
     } catch (e) {
@@ -2404,8 +2433,12 @@ function listarDependentesAPI(colaboradorId) {
 
 function adicionarDependenteAPI(colaboradorId, dependente) {
     try {
-        var url = CONFIG.API_URL + '/dependentes';
-        var payload = { ...dependente, colaborador_id: colaboradorId };
+        // FIX: Rota correta aninhada
+        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+
+        // Payload não precisa do colaborador_id pois vai na URL, mas vamos enviar limpo
+        var payload = dependente;
+
         var options = {
             method: 'post',
             contentType: 'application/json',

@@ -35,51 +35,50 @@ class RelatorioService {
         // Layout do "02. Templeta..."
 
         // Buscar colaboradores
+        // BUSCAR DADOS PROCESSADOS DA FOLHA DE PAGAMENTO
+        // A fonte da verdade agora é a tabela 'folha_pagamento' onde os cálculos foram salvos
+        const { data: folhasProcessadas } = await supabase
+            .from('folha_pagamento')
+            .select('*')
+            .in('cpf', cpfs)
+            .eq('mes_referencia', periodo.mes)
+            .eq('ano_referencia', periodo.ano);
+
+        // Se não houver folha processada, buscar colaboradores apenas para preencher o básico (fallback)
         const { data: colaboradores } = await supabase
             .from('colaboradores')
             .select('*')
             .in('cpf', cpfs);
 
-        // Buscar Benefícios (filtrando saúde/odonto)
-        const { data: beneficios } = await supabase
-            .from('beneficios')
-            .select('*')
-            .in('cpf', cpfs)
-            .in('tipo_beneficio', ['plano_saude', 'plano_odontologico']);
-
         const dados = colaboradores.map(c => {
-            // Encontrar benefícios deste colaborador
-            const saude = beneficios.find(b => b.cpf === c.cpf && b.tipo_beneficio === 'plano_saude');
-            const odonto = beneficios.find(b => b.cpf === c.cpf && b.tipo_beneficio === 'plano_odontologico');
+            // Tentar encontrar registro processado
+            const f = folhasProcessadas ? folhasProcessadas.find(folha => folha.cpf === c.cpf) : null;
 
-            // Calcular idade
-            const idade = calcularIdade(c.data_nascimento);
-
+            // Se encontrou folha processada, usa os dados dela. Senão, zeros.
             return {
-                colaborador_id: c.id, // Adicionado ID para vínculo
+                colaborador_id: c.id,
                 cpf: c.cpf,
-                nome_completo: c.nome_completo,
-                local_trabalho: c.local_trabalho,
-                data_admissao: c.data_admissao,
-                socio: '', // Campo não mapeado no banco ainda
-                salario_base: 0, // Precisa buscar salário atual (talvez na folha?)
-                novo_salario: '',
-                cargo: c.cargo,
-                departamento: c.departamento,
-                convenio: saude ? saude.descricao : '-', // Ex: "AMIL 2"
-                data_nascimento: c.data_nascimento,
-                idade: idade,
-                faixa_etaria: '', // Lógica de faixa etária a implementar
+                nome_completo: f ? f.nome_colaborador : c.nome_completo,
+                local_trabalho: f ? f.local_trabalho : c.local_trabalho,
+                data_admissao: f ? f.data_admissao : c.data_admissao,
+                socio: f ? f.socio : 0,
+                salario_base: f ? f.salario_base : 0,
+                novo_salario: f ? (f.novo_salario || '') : '',
+                cargo: f ? f.cargo : c.cargo,
+                departamento: f ? f.departamento : c.departamento,
+                convenio: f ? f.convenio_escolhido : '-',
+                data_nascimento: f ? f.data_nascimento : c.data_nascimento,
+                idade: f ? f.idade : calcularIdade(c.data_nascimento),
+                faixa_etaria: f ? f.faixa_etaria : '',
 
-                // Valores - Assumindo que o banco guarda o valor total e descontos
-                // A lógica de divisão (empresa vs func) pode estar no banco ou ser regra de negócio fixa
-                vl_100_amil: saude ? saude.valor_total : 0,
-                vl_empresa_amil: saude ? (saude.valor_total - (saude.valor || 0)) : 0, // Total - Desconto
-                vl_func_amil: saude ? saude.valor : 0, // Valor descontado
-                amil_saude_dep: 0, // Dependentes não mapeados explicitamente no schema atual
+                // Valores (Vêm calculados do Banco)
+                vl_100_amil: f ? f.vl_100_amil : 0,
+                vl_empresa_amil: f ? f.vl_empresa_amil : 0,
+                vl_func_amil: f ? f.vl_func_amil : 0,
+                amil_saude_dep: f ? f.amil_saude_dep : 0,
 
-                odonto_func: odonto ? odonto.valor : 0,
-                odonto_dep: 0
+                odonto_func: f ? f.odont_func : 0,
+                odonto_dep: f ? f.odont_dep : 0
             };
         });
 

@@ -64,11 +64,10 @@ module.exports = {
 
             if (pError || !planoInfo) throw new Error('Plano não encontrado');
 
-            // 1. Fetch active plans of same type
-            // Changed: Fetch ALL plans of this type to find a slot to recycle (cleaner than Deactivate+Upsert)
+            // 1. Fetch ALL plans of this type (Active or not)
             const { data: existingPlans, error: eError } = await supabase
                 .from('colaboradores_planos')
-                .select('id, plano:planos(tipo)')
+                .select('id, plano_id, plano:planos(tipo)')
                 .eq('colaborador_id', id);
 
             if (eError) throw eError;
@@ -76,49 +75,64 @@ module.exports = {
             // Robust type comparison
             const targetTipo = (planoInfo.tipo || '').toLowerCase();
 
-            const candidates = existingPlans.filter(p => {
+            // Filter for same type
+            const sameTypePlans = existingPlans.filter(p => {
                 const pTipo = (p.plano && p.plano.tipo) ? p.plano.tipo.toLowerCase() : '';
                 return pTipo === targetTipo;
             });
 
-            console.log(`[Atribuir Plano] Encontrados ${candidates.length} slots para o tipo ${targetTipo}`);
+            console.log(`[Atribuir Plano] Encontrados ${sameTypePlans.length} planos do tipo ${targetTipo}`);
 
             const pid = parseInt(plano_id, 10);
-            let operacao = 'insert';
-            let data = null;
 
-            if (candidates.length > 0) {
-                // RECYCLE STRATEGY: Update the first available slot and delete the rest
-                // This satisfies "Update if exists" and cleans up duplicates at the same time
-                operacao = 'update';
-                const slotToReuse = candidates[0];
-                const trash = candidates.slice(1);
+            // STRATEGY: 
+            // 1. Exact Match: If (user, plan) exists, update it + delete others.
+            // 2. Recycle: If (user, plan) NOT exists, but (user, other_plan_of_type) exists, update OTHER to CURRENT.
+            // 3. Insert: If nothing exists.
 
-                // Update the chosen slot
+            const exactMatch = sameTypePlans.find(p => p.plano_id === pid);
+            let activeRecordId = null;
+
+            if (exactMatch) {
+                // Scenario A: Plan already exists in history. Reactivate it.
+                console.log(`[Atribuir Plano] Encontrado registro exato (ID: ${exactMatch.id}). Atualizando...`);
+
                 const { data: updated, error: uError } = await supabase
                     .from('colaboradores_planos')
                     .update({
-                        plano_id: pid,
                         matricula: matricula || null,
                         ativo: true
-                        // updated_at: new Date() // Column does not exist
                     })
-                    .eq('id', slotToReuse.id) // Update by PK
+                    .eq('id', exactMatch.id)
                     .select()
                     .single();
 
                 if (uError) throw uError;
-                data = updated;
+                activeRecordId = exactMatch.id;
 
-                // Delete duplicates/history to enforce 1:1 per type if desired
-                if (trash.length > 0) {
-                    const idsToDelete = trash.map(t => t.id);
-                    // Safe delete
-                    await supabase.from('colaboradores_planos').delete().in('id', idsToDelete);
-                    console.log(`[Atribuir Plano] Limpeza: Removidos ${idsToDelete.length} registros duplicados/antigos.`);
-                }
+            } else if (sameTypePlans.length > 0) {
+                // Scenario B: Recycle the first available slot of same type
+                const slotToReuse = sameTypePlans[0];
+                console.log(`[Atribuir Plano] Reciclando slot (ID: ${slotToReuse.id}) para novo plano ${pid}`);
+
+                const { data: updated, error: uError } = await supabase
+                    .from('colaboradores_planos')
+                    .update({
+                        plano_id: pid, // Change product
+                        matricula: matricula || null,
+                        ativo: true
+                    })
+                    .eq('id', slotToReuse.id)
+                    .select()
+                    .single();
+
+                if (uError) throw uError;
+                activeRecordId = slotToReuse.id;
+
             } else {
-                // INSERT STRATEGY: No slot exists, valid insert
+                // Scenario C: Insert new
+                console.log(`[Atribuir Plano] Inserindo novo registro...`);
+
                 const { data: inserted, error: iError } = await supabase
                     .from('colaboradores_planos')
                     .insert({
@@ -131,10 +145,21 @@ module.exports = {
                     .single();
 
                 if (iError) throw iError;
-                data = inserted;
+                activeRecordId = inserted.id;
             }
 
-            res.json({ success: true, data, message: `Plano ${operacao === 'update' ? 'atualizado' : 'atribuído'} com sucesso.` });
+            // CLEANUP: Delete any other plans of SAME TYPE that lead to duplicates or obsolete history
+            // preventing future unique constraint issues if we swizzle ids around
+            if (activeRecordId) {
+                const trash = sameTypePlans.filter(p => p.id !== activeRecordId);
+                if (trash.length > 0) {
+                    const idsToDelete = trash.map(t => t.id);
+                    await supabase.from('colaboradores_planos').delete().in('id', idsToDelete);
+                    console.log(`[Atribuir Plano] Limpeza: Removidos ${idsToDelete.length} registros obsoletos.`);
+                }
+            }
+
+            res.json({ success: true, message: 'Plano salvo com sucesso.' });
 
         } catch (error) {
             console.error('Erro ao atribuir plano:', error);

@@ -2024,7 +2024,8 @@ function mostrarModalEdicao(colaborador) {
         <div id="lista_dependentes" style="margin-bottom: 15px; font-size: 13px; color: #666;">🔄 Carregando lista...</div>
         
         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px dashed #ccc;">
-          <label style="margin-top:0; color:#1a73e8;">➕ Adicionar Dependente:</label>
+          <input type="hidden" id="dep_id">
+          <label style="margin-top:0; color:#1a73e8;" id="titulo_dep">➕ Adicionar Dependente:</label>
           <div class="row">
             <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex: 2;">
             <input type="text" id="dep_cpf" placeholder="CPF" style="flex: 1;">
@@ -2038,7 +2039,10 @@ function mostrarModalEdicao(colaborador) {
               <option value="Pai/Mae">Pai/Mãe</option>
             </select>
             <input type="text" id="dep_matricula" placeholder="Matrícula (Opcional)" style="flex: 1;">
-            <button type="button" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
+            <div style="display:flex; gap:5px;">
+                <button type="button" id="btn_salvar_dep" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
+                <button type="button" id="btn_cancelar_dep" onclick="cancelarEdicaoDependente()" class="btn btn-secondary" style="margin: 5px 0 0 0; padding: 8px 15px; display:none;">Cancelar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2243,39 +2247,20 @@ function mostrarModalEdicao(colaborador) {
               }
           }).buscarPlanosColaboradorAPI(id);
           
-        <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px dashed #ccc;">
-          <input type="hidden" id="dep_id">
-          <label style="margin-top:0; color:#1a73e8;" id="titulo_dep">➕ Adicionar Dependente:</label>
-          <div class="row">
-            <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex: 2;">
-            <input type="text" id="dep_cpf" placeholder="CPF" style="flex: 1;">
-            <input type="date" id="dep_nasc" style="flex: 1;">
-          </div>
-          <div class="row">
-            <select id="dep_parentesco" style="flex: 1;">
-              <option value="">Parentesco...</option>
-              <option value="Filho(a)">Filho(a)</option>
-              <option value="Conjuge">Cônjuge</option>
-              <option value="Pai/Mae">Pai/Mãe</option>
-            </select>
-            <input type="text" id="dep_matricula" placeholder="Matrícula (Opcional)" style="flex: 1;">
-            <div style="display:flex; gap:5px;">
-                <button type="button" id="btn_salvar_dep" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
-                <button type="button" id="btn_cancelar_dep" onclick="cancelarEdicaoDependente()" class="btn btn-secondary" style="margin: 5px 0 0 0; padding: 8px 15px; display:none;">Cancelar</button>
-            </div>
-          </div>
-        </div>
-      </div>
+          carregarDependentesUI(id);
+      }
 
-      <div style="margin-top: 25px; text-align: right; border-top: 1px solid #eee; padding-top: 15px;">
-        <button type="button" onclick="google.script.host.close()" class="btn btn-secondary">❌ Cancelar</button>
-        <button type="submit" class="btn btn-primary">💾 Salvar Alterações</button>
-      </div>
-    </form>
-    
-    <div id="mensagem" style="margin-top: 20px; padding: 15px; display: none; border-radius: 6px;"></div>
-    
-    <script>
+      function carregarDependentesUI(colabId) {
+          var div = document.getElementById('lista_dependentes');
+          div.innerHTML = '🔄 Carregando...';
+          google.script.run.withSuccessHandler(function(res) {
+              if (res.success) {
+                  renderizarDependentes(res.data);
+              } else {
+                  div.innerHTML = '❌ Erro ao carregar dependentes.';
+              }
+          }).listarDependentesAPI(colabId);
+      }
       // ... (previous functions) ...
 
       function renderizarDependentes(lista) {

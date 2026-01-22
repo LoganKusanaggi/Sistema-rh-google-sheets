@@ -2904,26 +2904,48 @@ function obterLayoutPorTipoAPI(dadosLinhas, tipo) {
     if (tipo === 'folha' || tipo === 'folha_pagamento') {
         return {
             colunas: [
-                { nome: 'CPF', campo: 'cpf', largura: 120, formato: 'cpf' },
-                { nome: 'Nome', campo: 'nome', largura: 250 }, // Snapshot as vezes nao tem 'nome', tem 'nome_colaborador'. Vamos tratar no renderizador ou aqui? O renderizador busca 'campo'. Se o snapshot tem 'nome_colaborador', precisamos remapear.
-                { nome: 'Mês', campo: 'mes_referencia', largura: 50 },
-                { nome: 'Ano', campo: 'ano_referencia', largura: 60 },
+                { nome: 'CPF', campo: 'cpf', largura: 110, formato: 'cpf' },
+                { nome: 'Nome', campo: 'nome', largura: 250 },
+                { nome: 'Mês', campo: 'mes_referencia', largura: 40 },
+                { nome: 'Ano', campo: 'ano_referencia', largura: 50 },
+                { nome: 'Local', campo: 'local_trabalho', largura: 100 },
+                { nome: 'Admissão', campo: 'data_admissao', largura: 85, formato: 'data' },
+                { nome: 'Sócio', campo: 'socio', largura: 80, formato: 'moeda' },
                 { nome: 'Salário Base', campo: 'salario_base', largura: 100, formato: 'moeda' },
-                { nome: 'Horas Extras', campo: 'horas_extras', largura: 100, formato: 'moeda' },
-                { nome: 'Adic. Noturno', campo: 'adicional_noturno', largura: 100, formato: 'moeda' },
-                { nome: 'Insalubridade', campo: 'insalubridade', largura: 100, formato: 'moeda' },
-                { nome: 'Periculosidade', campo: 'periculosidade', largura: 100, formato: 'moeda' },
-                { nome: 'Comissões', campo: 'comissoes', largura: 100, formato: 'moeda' },
-                { nome: 'Gratificações', campo: 'gratificacoes', largura: 100, formato: 'moeda' },
-                { nome: 'Outros Prov.', campo: 'outros_proventos', largura: 100, formato: 'moeda' },
-                { nome: 'INSS', campo: 'inss', largura: 100, formato: 'moeda' },
-                { nome: 'IRRF', campo: 'irrf', largura: 100, formato: 'moeda' },
-                { nome: 'Vale Transp.', campo: 'vale_transporte', largura: 100, formato: 'moeda' },
-                { nome: 'Vale Refeição', campo: 'vale_refeicao', largura: 100, formato: 'moeda' },
-                { nome: 'Plano Saúde', campo: 'plano_saude', largura: 100, formato: 'moeda' },
-                { nome: 'Outros Desc.', campo: 'outros_descontos', largura: 100, formato: 'moeda' },
-                { nome: 'Status (Pendente/Pago)', campo: 'status_pagamento', largura: 120 },
-                { nome: 'Data Pagto', campo: 'data_pagamento', largura: 100 },
+                { nome: 'Cargo', campo: 'cargo', largura: 120 },
+                { nome: 'Depto', campo: 'departamento', largura: 100 },
+
+                // Novos Campos 2025 (Benefícios)
+                { nome: 'Convênio', campo: 'convenio_escolhido', largura: 120 },
+                { nome: 'Nascimento', campo: 'data_nascimento', largura: 85, formato: 'data' },
+                { nome: 'Idade', campo: 'idade', largura: 50 },
+                { nome: 'Faixa Etária', campo: 'faixa_etaria', largura: 90 },
+
+                { nome: 'Vl 100% Amil', campo: 'vl_100_amil', largura: 90, formato: 'moeda' },
+                { nome: 'Vl Empresa', campo: 'vl_empresa_amil', largura: 90, formato: 'moeda' },
+                { nome: 'Vl Func.', campo: 'vl_func_amil', largura: 90, formato: 'moeda' },
+                { nome: 'Saúde Dep.', campo: 'amil_saude_dep', largura: 90, formato: 'moeda' },
+                { nome: 'Odonto Func.', campo: 'odont_func', largura: 90, formato: 'moeda' },
+                { nome: 'Odonto Dep.', campo: 'odont_dep', largura: 90, formato: 'moeda' },
+
+                // Variáveis e Outros
+                { nome: 'H. Extras', campo: 'horas_extras', largura: 80, formato: 'moeda' },
+                { nome: 'Adic. Not.', campo: 'adicional_noturno', largura: 80, formato: 'moeda' },
+                { nome: 'Insalub.', campo: 'insalubridade', largura: 80, formato: 'moeda' },
+                { nome: 'Peric.', campo: 'periculosidade', largura: 80, formato: 'moeda' },
+                { nome: 'Comissões', campo: 'comissoes', largura: 80, formato: 'moeda' },
+                { nome: 'Gratific.', campo: 'gratificacoes', largura: 80, formato: 'moeda' },
+                { nome: 'Outros Prov.', campo: 'outros_proventos', largura: 80, formato: 'moeda' },
+
+                { nome: 'INSS', campo: 'inss', largura: 80, formato: 'moeda' },
+                { nome: 'IRRF', campo: 'irrf', largura: 80, formato: 'moeda' },
+                { nome: 'VT', campo: 'vale_transporte', largura: 80, formato: 'moeda' },
+                { nome: 'VR', campo: 'vale_refeicao', largura: 80, formato: 'moeda' },
+                { nome: 'Outros Desc.', campo: 'outros_descontos', largura: 80, formato: 'moeda' },
+
+                { nome: 'Líquido', campo: 'salario_liquido', largura: 100, formato: 'moeda', negrito: true },
+                { nome: 'Status', campo: 'status_pagamento', largura: 80 },
+                { nome: 'Pagamento', campo: 'data_pagamento', largura: 90, formato: 'data' },
                 { nome: 'Obs', campo: 'observacoes', largura: 150 }
             ],
             formatacao: {

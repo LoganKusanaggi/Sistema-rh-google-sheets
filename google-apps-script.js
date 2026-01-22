@@ -3149,8 +3149,8 @@ function restaurarSnapshotBeneficios(itens, metadados) {
     sheet.setColumnWidth(6, 120); // Transp
 
     // === METADADOS OCULTOS (Linha 1 - Invisível) ===
-    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff');
-    sheet.setRowHeight(1, 1); // Quase invisível
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff').setBackground('#ffffff');
+    sheet.hideRows(1);
 
     ss.setActiveSheet(sheet);
     SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',
@@ -3229,8 +3229,8 @@ function restaurarSnapshotFolha(itens, metadados) {
 
     // Metadados
     sheet.insertRowBefore(1);
-    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff');
-    sheet.setRowHeight(1, 1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff').setBackground('#ffffff');
+    sheet.hideRows(1);
 
     ss.setActiveSheet(sheet);
     SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',

@@ -1120,8 +1120,12 @@ function enviarBeneficiosParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Benefícios')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Benefícios ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // Permite "Lançamento Benefícios" (Novo) OU "V. YYYY..." (Snapshot/Histórico)
+    const isLancamento = nomeAba.includes('Lançamento Benefícios');
+    const isSnapshot = nomeAba.startsWith('V.') && nomeAba.toLowerCase().includes('beneficios');
+
+    if (!isLancamento && !isSnapshot) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Benefícios" ou em uma versão de histórico de benefícios para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -1129,70 +1133,168 @@ function enviarBeneficiosParaAPI() {
     const resp = ui.alert('Confirmar', 'Enviar benefícios para o sistema?', ui.ButtonSet.YES_NO);
     if (resp == ui.Button.NO) return;
 
-    const startRow = 13;
-    const lastRow = sheet.getLastRow();
-    if (lastRow < startRow) return;
+    // --- DETECÇÃO INTELIGENTE DE LEIAUTE ---
+    let startRow = 13;
+    let headerRow = 12;
 
-    // Lendo colunas A até F (1 a 6)
-    const data = sheet.getRange(startRow, 1, lastRow - startRow + 1, 6).getValues();
+    if (isSnapshot) {
+        startRow = 2;
+        headerRow = 1;
+    }
+
+    const lastCol = sheet.getLastColumn();
+    // Pega linha de header para mapear colunas
+    const headers = sheet.getRange(headerRow, 1, 1, lastCol).getValues()[0];
+    const headersMap = {};
+    headers.forEach((h, i) => headersMap[String(h).toUpperCase().trim()] = i);
+
+    // Mapeamento Modo Matriz (Manuais)
+    let colNome = -1;
+    let colAlim = -1;
+    let colTransp = -1;
+    if (headersMap['NOME'] !== undefined) colNome = headersMap['NOME'];
+    if (headersMap['ALIMENTAÇÃO'] !== undefined) colAlim = headersMap['ALIMENTAÇÃO'];
+    if (headersMap['TRANSPORTE'] !== undefined) colTransp = headersMap['TRANSPORTE'];
+
+    // Mapeamento Modo Lista (Snapshots)
+    // Snapshot Headers: "Tipo Beneficio", "Valor", "Status", etc.
+    let colTipo = -1;
+    let colValor = -1;
+    let colCpf = -1;
+
+    if (headersMap['TIPO BENEFICIO'] !== undefined) colTipo = headersMap['TIPO BENEFICIO'];
+    else if (headersMap['TIPO'] !== undefined) colTipo = headersMap['TIPO'];
+
+    if (headersMap['VALOR'] !== undefined) colValor = headersMap['VALOR'];
+
+    // As vezes o snapshot tem 'CPF' explicitamente
+    if (headersMap['CPF'] !== undefined) colCpf = headersMap['CPF'];
+
+    // Determina qual modo usar
+    // Se tiver TIPO e VALOR, é LIST MODE (Histórico)
+    const isListMode = (colTipo >= 0 && colValor >= 0);
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow < startRow) {
+        ui.alert('⚠️ Sem dados', 'A planilha parece estar vazia.', ui.ButtonSet.OK);
+        return;
+    }
+
+    // Leitura dos Dados
+    // Lemos até a coluna mais longe necessária
+    const maxCol = Math.max(colNome, colAlim, colTransp, colTipo, colValor, colCpf) + 1;
+    const data = sheet.getRange(startRow, 1, lastRow - startRow + 1, maxCol).getValues();
     const beneficios = [];
 
-    // Map Name -> CPF (Recuperação inversa, já que CPF não está na linha visualmente)
+    // Map para recuperar CPF se não tiver na linha (Matrix Mode)
     const sheetColab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
     const dadosColab = sheetColab.getDataRange().getValues();
     const mapNomeParaCPF = {};
     for (let i = 5; i < dadosColab.length; i++) {
         const nome = String(dadosColab[i][2]).trim().toUpperCase();
-        const cpf = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapNomeParaCPF[nome] = cpf;
+        const cpfRaw = String(dadosColab[i][1]).replace(/\D/g, '');
+        mapNomeParaCPF[nome] = cpfRaw;
     }
 
-    const match = nomeAba.match(/([a-zA-Z]{3})-(\d{4})/);
+    // Parse Periodo (Mes/Ano)
     let mes = 0, ano = 0;
-    if (match) {
-        const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
-        mes = meses[match[1]];
-        ano = parseInt(match[2]);
+    const matchSnapshot = nomeAba.match(/V\.\s(\d{4})-(\d{2})-\d{2}/);
+    if (matchSnapshot) {
+        ano = parseInt(matchSnapshot[1]);
+        mes = parseInt(matchSnapshot[2]);
+    } else {
+        const matchLancamento = nomeAba.match(/([a-zA-Z]{3})-(\d{4})/);
+        if (matchLancamento) {
+            const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
+            mes = meses[matchLancamento[1]] || 0;
+            ano = parseInt(matchLancamento[2]);
+        }
     }
 
     for (let i = 0; i < data.length; i++) {
         const row = data[i];
-        const nome = String(row[1]).trim().toUpperCase();
-        if (!nome) continue;
+        let cpf = '';
 
-        const cpf = mapNomeParaCPF[nome];
-        if (!cpf) continue;
-
-        // Col 4 (Index 4) = Alimentação (E)
-        if (row[4] && typeof row[4] === 'number' && row[4] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_alimentacao', valor: row[4], quantidade: 1, valor_total: row[4], status: 'ativo' });
+        // Prioridade: CPF da coluna direta
+        if (colCpf >= 0 && row[colCpf]) {
+            cpf = String(row[colCpf]).replace(/\D/g, '');
         }
 
-        // Col 5 (Index 5) = Transporte (F)
-        if (row[5] && typeof row[5] === 'number' && row[5] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_transporte', valor: row[5], quantidade: 1, valor_total: row[5], status: 'ativo' });
+        // Fallback: Nome (Matrix Mode)
+        if (!cpf && colNome >= 0 && row[colNome]) {
+            const nome = String(row[colNome]).trim().toUpperCase();
+            if (nome) cpf = mapNomeParaCPF[nome];
+        }
+
+        if (!cpf) continue;
+
+        if (isListMode) {
+            // --- LOGICA MODO LISTA (Histórico) ---
+            const tipo = row[colTipo];
+            const valor = row[colValor];
+
+            if (tipo && typeof valor === 'number' && valor > 0) {
+                beneficios.push({
+                    cpf: cpf,
+                    mes_referencia: mes,
+                    ano_referencia: ano,
+                    tipo_beneficio: tipo,
+                    valor: valor,
+                    quantidade: 1,
+                    valor_total: valor,
+                    status: 'ativo'
+                });
+            }
+
+        } else {
+            // --- LOGICA MODO MATRIZ (Lançamento Manual) ---
+
+            // Alimentação
+            if (colAlim >= 0 && row[colAlim] && typeof row[colAlim] === 'number' && row[colAlim] > 0) {
+                beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_alimentacao', valor: row[colAlim], quantidade: 1, valor_total: row[colAlim], status: 'ativo' });
+            }
+
+            // Transporte
+            if (colTransp >= 0 && row[colTransp] && typeof row[colTransp] === 'number' && row[colTransp] > 0) {
+                beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_transporte', valor: row[colTransp], quantidade: 1, valor_total: row[colTransp], status: 'ativo' });
+            }
         }
     }
 
     if (beneficios.length === 0) {
-        ui.alert('⚠️ Nenhum benefício para enviar', 'Verifique se há valores preenchidos em Alimentação ou Transporte.', ui.ButtonSet.OK);
+        ui.alert('⚠️ Nenhum benefício encontrado', `Modo: ${isListMode ? 'Lista' : 'Matriz'}. Verifique se as colunas estão corretas.`, ui.ButtonSet.OK);
         return;
     }
+
+    // --- DEDUPLICAÇÃO DE SEGURANÇA ---
+    // Remove duplicatas no mesmo lote (Ex: duas linhas de 'vale_alimentacao' pro CPF X)
+    const uniqueBeneficios = [];
+    const mapKeys = new Set();
+
+    beneficios.forEach(b => {
+        const key = `${b.cpf}-${b.tipo_beneficio}`;
+        if (!mapKeys.has(key)) {
+            mapKeys.add(key);
+            uniqueBeneficios.push(b);
+        }
+    });
 
     try {
         const url = CONFIG.API_URL + '/beneficios/batch';
         const options = {
             'method': 'post', 'contentType': 'application/json',
-            'payload': JSON.stringify({ beneficios: beneficios }), 'muteHttpExceptions': true
+            'payload': JSON.stringify({ beneficios: uniqueBeneficios }), 'muteHttpExceptions': true
         };
         const response = UrlFetchApp.fetch(url, options);
         const res = JSON.parse(response.getContentText());
 
         if (res.success) {
             ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+            if (isLancamento) {
+                const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
+                if (respDel == ui.Button.YES) {
+                    try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+                }
             }
         } else {
             throw new Error(res.error);
@@ -2827,70 +2929,74 @@ function listarHistoricoModal() {
 }
 
 // 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA
+// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (SNAPSHOT V2)
 function carregarSnapshotParaAba(id) {
     const res = obterHistoricoAPI(id);
     if (!res.success) throw new Error(res.error);
 
     const header = res.relatorio;
     const itens = res.itens;
+    const tipo = header.tipo;
+    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
 
-    // FIX: O `criarAbaRelatorio` espera um objeto 'resultado' completo que tenha .layout e .dados
-    // No banco, salvamos itens individuais. Precisamos reconstruir a estrutura que o relatório original tinha.
-
-    // 1. Tentar recuperar o layout do primeiro item (assumindo que salvamos o snapshot completo em cada item ou no header)
-    // No controller: dados_snapshot: linha
-    // O layout original NÃO foi salvo explicitamente no `relatorios_gerados` (vimos o insert).
-    // Porém, o `dados_snapshot` de cada linha contém os dados daquela linha.
-    // O `aplicarLayoutRelatorio` precisa de `dados.layout`.
-    // Se não temos o layout salvo, precisamos REGERAR o layout baseando-se no tipo.
-
-    // FIX: Normalizar campo 'nome' que pode vir como 'nome_colaborador' no snapshot
-    const dadosLinhas = itens.map(i => {
+    // 1. Normalização de dados (nome_colaborador -> nome, etc)
+    const dadosNormalizados = itens.map(i => {
         const d = i.dados_snapshot;
         if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
         return d;
     });
 
-    console.log('--- DEBUG SNAPSHOT ---');
-    if (dadosLinhas.length > 0) {
-        console.log('Primeiro Item (JSON):', JSON.stringify(dadosLinhas[0]));
-        console.log('Chaves:', Object.keys(dadosLinhas[0]));
+    const cpfs = dadosNormalizados.map(d => String(d.cpf).replace(/\D/g, ''));
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 2. Preparar Dados para as Funções de Criação (Map ou Array)
+    const dadosMap = {};
+    dadosNormalizados.forEach(d => {
+        const cpfLimpo = String(d.cpf).replace(/\D/g, '');
+        if (!dadosMap[cpfLimpo]) dadosMap[cpfLimpo] = [];
+        // Algumas funções esperam array de itens por cpf, outras objeto unico
+        dadosMap[cpfLimpo].push(d);
+    });
+
+    // 3. Roteamento por Tipo (Chama a função criadora original)
+    if (tipo === 'folha' || tipo === 'folha_pagamento') {
+        criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap, []);
+
+    } else if (tipo === 'beneficios') {
+        // Beneficios espera (cpfs, periodo, dadosAPI, dadosMapLocal)
+        // Passamos dadosNormalizados como dadosMapLocal simulado
+        criarPlanilhaBeneficiosCaju(cpfs, periodo, [], dadosMap);
+
+    } else if (tipo === 'variavel') {
+        criarPlanilhaVariavel(cpfs, periodo, dadosMap);
+
+    } else if (tipo === 'apontamentos') {
+        criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap);
+
     } else {
-        console.log('Nenhum dado encontrado no snapshot.');
+        // Fallback para relatório genérico se tipo desconhecido
+        const layout = obterLayoutPorTipoAPI(dadosNormalizados, tipo);
+        layout.dados = dadosNormalizados;
+        const resultado = { layout: layout, dados: dadosNormalizados };
+        const nomeAbaGen = `V.Gen ${header.created_at.substring(0, 10)} - ${tipo}`;
+        criarAbaRelatorio(tipo, nomeAbaGen, resultado, periodo);
+        return { success: true };
     }
 
-    // Simular a estrutura de retorno do RelatorioService
-    // Precisamos chamar o service para pegar só o layout vazio ou reconstruir manual?
-    // Vamos reconstruir um objeto de dados compatível.
+    // 4. Renomear para indicar Snapshot
+    // As funções acima criam abas com nome padrão "Lançamento ...". Vamos renomear.
+    const sheet = ss.getActiveSheet();
+    const nomeAtual = sheet.getName();
+    // Ex: "V. 2025-01-22 - folha"
+    const dataCriacao = header.created_at.substring(0, 10);
+    const novoNome = `V. ${dataCriacao} - ${tipo}`;
 
-    // HACK INTELIGENTE:
-    // Se não salvamos o layout no banco, vamos "adivinhar" o layout chamando a função de gerar layout localmente 
-    // OU (mais seguro) pegar o layout de uma chamada "fake" de relatório vazio?
-    // Como não temos acesso fácil ao backend "services" aqui no GAS (só via API), vamos confiar que o `dados_snapshot` 
-    // pode ser renderizado se tivermos as colunas.
+    // Evita erro de nome duplicado
+    if (ss.getSheetByName(novoNome)) {
+        ss.deleteSheet(ss.getSheetByName(novoNome));
+    }
 
-    // SOLUÇÃO ROBUSTA:
-    // Vamos fazer uma chamada ao endpoint de relatório "gerar" apenas para pegar o layout (dry-run)
-    // OU vamos implementar um layout genérico baseado nas chaves do JSON?
-
-    // Vamos usar a estratégia de "Gerar Relatório Fresco" para pegar o layout atual.
-    // Isso garante que o layout seja compatível com a versão atual do sistema.
-    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
-
-    // Monta o objeto final para o renderizador
-    const layoutGerado = obterLayoutPorTipoAPI(dadosLinhas, header.tipo);
-
-    // FIX CRÍTICO: O 'aplicarLayoutRelatorio' busca os dados dentro de 'layout.dados'
-    layoutGerado.dados = dadosLinhas;
-
-    const resultadoReconstruido = {
-        layout: layoutGerado,
-        dados: dadosLinhas
-    };
-
-    const nomeAba = `V. ${header.created_at.substring(0, 10)} - ${header.tipo}`;
-
-    criarAbaRelatorio(header.tipo, nomeAba, resultadoReconstruido, periodo);
+    sheet.setName(novoNome);
 
     return { success: true };
 }
@@ -2920,6 +3026,10 @@ function obterLayoutPorTipoAPI(dadosLinhas, tipo) {
                 { nome: 'DN', campo: 'data_nascimento', largura: 85, formato: 'data' },
                 { nome: 'Idade', campo: 'idade', largura: 50 },
                 { nome: 'Faixa Etária', campo: 'faixa_etaria', largura: 100 },
+
+                // Benefícios Mensais (VA/VT) - Essenciais para envio
+                { nome: 'Vale Alimentação', campo: 'vale_alimentacao', largura: 110, formato: 'moeda' },
+                { nome: 'Vale Transporte', campo: 'vale_transporte', largura: 110, formato: 'moeda' },
 
                 { nome: 'Vl 100% Amil', campo: 'vl_100_amil', largura: 90, formato: 'moeda' },
                 { nome: 'Vl Empresa Amil', campo: 'vl_empresa_amil', largura: 90, formato: 'moeda' },

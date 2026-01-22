@@ -1064,10 +1064,10 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
             // Pega o primeiro item para extrair metadados do colab
             const d = itens[0];
             if (d && !mapDados[cpf]) {
-                 mapDados[cpf] = {
+                mapDados[cpf] = {
                     nome: d.nome || d.nome_colaborador || d.nome_completo || 'Sem Nome',
                     cidade: d.cidade || d.local_trabalho || '-'
-                 };
+                };
             }
         }
     }
@@ -1096,14 +1096,14 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
         if (dadosMap && dadosMap[cpf]) {
             // Snapshot pode ser Lista (tipo_beneficio) ou já processado flat
             const itens = dadosMap[cpf];
-            
+
             // Tenta achar itens por tipo
             const alim = itens.find(x => x.tipo_beneficio === 'vale_alimentacao' || x.vale_alimentacao);
             const transp = itens.find(x => x.tipo_beneficio === 'vale_transporte' || x.vale_transporte);
-            
+
             if (alim) valAlim = alim.valor || alim.vale_alimentacao || 0;
             if (transp) valTransp = transp.valor || transp.vale_transporte || 0;
-            
+
             // Se for um snapshot "flat" que tem tudo num objeto só (ex: restored from folha?)
             // Mas beneficios geralmente é lista.
         }
@@ -2907,9 +2907,55 @@ function listarHistoricoModal() {
     SpreadsheetApp.getUi().showModalDialog(html, 'Histórico de Versões');
 }
 
-// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA
-// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (SNAPSHOT V2)
-// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (SNAPSHOT V3 - RESTAURAÇÃO EXATA)
+// =====================================================
+// HELPERS CRÍTICOS (CORREÇÃO DE SNAPSHOTS)
+// =====================================================
+
+function mapearColunasDoHeader(headers, mapeamentoPossivel) {
+    const map = {};
+    const headersNorm = headers.map(h => String(h).toUpperCase().trim());
+
+    for (const [campoFinal, variacoes] of Object.entries(mapeamentoPossivel)) {
+        let colIndex = -1;
+        // Tenta encontrar alguma variação nos headers
+        for (const v of variacoes) {
+            const vNorm = String(v).toUpperCase().trim();
+            colIndex = headersNorm.findIndex(h => h === vNorm || h.includes(vNorm));
+            if (colIndex > -1) break;
+        }
+        if (colIndex > -1) {
+            map[campoFinal] = colIndex;
+        }
+    }
+    return map;
+}
+
+function normalizarDadosParaEnvio(dados, tipo) {
+    return dados.map(item => {
+        // Clone raso
+        const normalizado = JSON.parse(JSON.stringify(item));
+
+        // Normalização de Nomes
+        if (normalizado.nome_colaborador && !normalizado.nome) normalizado.nome = normalizado.nome_colaborador;
+        if (normalizado.nome_completo && !normalizado.nome) normalizado.nome = normalizado.nome_completo;
+
+        // Limpeza de campos internos de snapshot
+        delete normalizado.dados_snapshot;
+        delete normalizado.relatorio_id;
+        delete normalizado.created_at;
+        delete normalizado.id; // ID do snapshot não deve ir como ID do registro novo
+
+        // Garantias por Tipo
+        if (tipo === 'folha') {
+            normalizado.mes_referencia = normalizado.mes_referencia || normalizado.mes || 0;
+            normalizado.ano_referencia = normalizado.ano_referencia || normalizado.ano || 0;
+        }
+
+        return normalizado;
+    });
+}
+
+// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (REFATORADA V4)
 function carregarSnapshotParaAba(id) {
     const res = obterHistoricoAPI(id);
     if (!res.success) throw new Error(res.error);
@@ -2917,135 +2963,78 @@ function carregarSnapshotParaAba(id) {
     const header = res.relatorio;
     const itens = res.itens;
     const tipo = header.tipo;
+    const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
 
-    // =====================================================
-    // HELPERS CRÍTICOS (CORREÇÃO DE SNAPSHOTS)
-    // =====================================================
+    // Normalizar dados recuperados
+    const dadosNormalizados = itens.map(i => {
+        // O item em si tem metadados do snapshot (id, relatorio_id), o payload real está em dados_snapshot
+        let d = i.dados_snapshot || {};
+        // Se o JSON do banco vier "spread", tentamos usar o próprio item
+        if (!i.dados_snapshot) d = i;
 
-    function mapearColunasDoHeader(headers, mapeamentoPossivel) {
-        const map = {};
-        const headersNorm = headers.map(h => String(h).toUpperCase().trim());
+        // Normalizações básicas
+        if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
+        return d;
+    });
 
-        for (const [campoFinal, variacoes] of Object.entries(mapeamentoPossivel)) {
-            let colIndex = -1;
-            // Tenta encontrar alguma variação nos headers
-            for (const v of variacoes) {
-                const vNorm = String(v).toUpperCase().trim();
-                colIndex = headersNorm.findIndex(h => h === vNorm || h.includes(vNorm));
-                if (colIndex > -1) break;
-            }
-            if (colIndex > -1) {
-                map[campoFinal] = colIndex;
-            }
-        }
-        return map;
+    const cpfs = dadosNormalizados
+        .filter(d => d.cpf)
+        .map(d => String(d.cpf).replace(/\D/g, ''));
+
+    // Preparar dadosMap (CPF -> Array de dados)
+    const dadosMap = {};
+    dadosNormalizados.forEach(d => {
+        if (!d.cpf) return;
+        const cpfLimpo = String(d.cpf).replace(/\D/g, '');
+        if (!dadosMap[cpfLimpo]) dadosMap[cpfLimpo] = [];
+        dadosMap[cpfLimpo].push(d);
+    });
+
+    // ROTEAMENTO
+    if (tipo === 'folha' || tipo === 'folha_pagamento') {
+        // Folha espera dadosMap onde cada entrada é uma lista (geralmente de 1 item)
+        criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap, []);
+
+    } else if (tipo === 'beneficios') {
+        // Benefícios: passamos dadosMap como 4o argumento (fallback de local)
+        // OBS: Corrigido para garantir que a cidade venha dos dadosMap se não tiver API
+        criarPlanilhaBeneficiosCaju(cpfs, periodo, [], dadosMap);
+
+    } else if (tipo === 'variavel') {
+        criarPlanilhaVariavel(cpfs, periodo, dadosMap);
+
+    } else if (tipo === 'apontamentos') {
+        criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap);
+
+    } else {
+        SpreadsheetApp.getUi().alert('Tipo desconhecido', `O tipo "${tipo}" não tem restaurador implementado.`, SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
     }
 
-    function normalizarDadosParaEnvio(dados, tipo) {
-        return dados.map(item => {
-            // Clone raso
-            const normalizado = JSON.parse(JSON.stringify(item));
+    // RENOMEAR PARA PADRÃO DE SNAPSHOT
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getActiveSheet();
+    const dataCriacao = header.created_at ? header.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10);
+    const novoNome = `V. ${dataCriacao} - ${tipo}`;
 
-            // Normalização de Nomes
-            if (normalizado.nome_colaborador && !normalizado.nome) normalizado.nome = normalizado.nome_colaborador;
-            if (normalizado.nome_completo && !normalizado.nome) normalizado.nome = normalizado.nome_completo;
-
-            // Limpeza de campos internos de snapshot
-            delete normalizado.dados_snapshot;
-            delete normalizado.relatorio_id;
-            delete normalizado.created_at;
-            delete normalizado.id; // ID do snapshot não deve ir como ID do registro novo
-
-            // Garantias por Tipo
-            if (tipo === 'folha') {
-                normalizado.mes_referencia = normalizado.mes_referencia || normalizado.mes || 0;
-                normalizado.ano_referencia = normalizado.ano_referencia || normalizado.ano || 0;
-            }
-
-            return normalizado;
-        });
+    // Validar duplicidade de nome
+    if (ss.getSheetByName(novoNome)) {
+        ss.deleteSheet(ss.getSheetByName(novoNome));
     }
+    sheet.setName(novoNome);
 
-    // 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (REFATORADA V4)
-    function carregarSnapshotParaAba(id) {
-        const res = obterHistoricoAPI(id);
-        if (!res.success) throw new Error(res.error);
-
-        const header = res.relatorio;
-        const itens = res.itens;
-        const tipo = header.tipo;
-        const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
-
-        // Normalizar dados recuperados
-        const dadosNormalizados = itens.map(i => {
-            // O item em si tem metadados do snapshot (id, relatorio_id), o payload real está em dados_snapshot
-            let d = i.dados_snapshot || {};
-            // Se o JSON do banco vier "spread", tentamos usar o próprio item
-            if (!i.dados_snapshot) d = i;
-
-            // Normalizações básicas
-            if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
-            return d;
-        });
-
-        const cpfs = dadosNormalizados
-            .filter(d => d.cpf)
-            .map(d => String(d.cpf).replace(/\D/g, ''));
-
-        // Preparar dadosMap (CPF -> Array de dados)
-        const dadosMap = {};
-        dadosNormalizados.forEach(d => {
-            if (!d.cpf) return;
-            const cpfLimpo = String(d.cpf).replace(/\D/g, '');
-            if (!dadosMap[cpfLimpo]) dadosMap[cpfLimpo] = [];
-            dadosMap[cpfLimpo].push(d);
-        });
-
-        // ROTEAMENTO
-        if (tipo === 'folha' || tipo === 'folha_pagamento') {
-            // Folha espera dadosMap onde cada entrada é uma lista (geralmente de 1 item)
-            criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap, []);
-
-        } else if (tipo === 'beneficios') {
-            // Benefícios: passamos dadosMap como 4o argumento (fallback de local)
-            // OBS: Corrigido para garantir que a cidade venha dos dadosMap se não tiver API
-            criarPlanilhaBeneficiosCaju(cpfs, periodo, [], dadosMap);
-
-        } else if (tipo === 'variavel') {
-            criarPlanilhaVariavel(cpfs, periodo, dadosMap);
-
-        } else if (tipo === 'apontamentos') {
-            criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap);
-
-        } else {
-            SpreadsheetApp.getUi().alert('Tipo desconhecido', `O tipo "${tipo}" não tem restaurador implementado.`, SpreadsheetApp.getUi().ButtonSet.OK);
-            return;
-        }
-
-        // RENOMEAR PARA PADRÃO DE SNAPSHOT
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const sheet = ss.getActiveSheet();
-        const dataCriacao = header.created_at ? header.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10);
-        const novoNome = `V. ${dataCriacao} - ${tipo}`;
-
-        // Validar duplicidade de nome
-        if (ss.getSheetByName(novoNome)) {
-            ss.deleteSheet(ss.getSheetByName(novoNome));
-        }
-        sheet.setName(novoNome);
-
-        // Inserir ID do Snapshot na celula A1 (Oculta) para referencia futura
-        // Isso ajuda o enviar...API a saber que é uma atualização
-        // Mas CUIDADO: O usuário pediu para aceitar "V. ..." como detecção também.
-        // Vamos garantir que metadados existam.
-        const metadados = {
-            snapshot_id: header.id,
-            tipo: tipo,
-            mes_referencia: periodo.mes,
-            ano_referencia: periodo.ano
-        };
-        sheet.insertRowBefore(1);
-        sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
-        sheet.setRowHeight(1, 1);
-    }
+    // Inserir ID do Snapshot na celula A1 (Oculta) para referencia futura
+    // Isso ajuda o enviar...API a saber que é uma atualização
+    // Mas CUIDADO: O usuário pediu para aceitar "V. ..." como detecção também.
+    // Vamos garantir que metadados existam.
+    const metadados = {
+        snapshot_id: header.id,
+        tipo: tipo,
+        mes_referencia: periodo.mes,
+        ano_referencia: periodo.ano
+    };
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+    sheet.setRowHeight(1, 1);
+}
 

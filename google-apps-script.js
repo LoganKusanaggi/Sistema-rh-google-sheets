@@ -797,9 +797,14 @@ function enviarFolhaParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    // Validação mais flexível: Aceita "Lançamento Folha" ou "V. ... folha ..." (Restaurada)
-    if (!nomeAba.toLowerCase().includes('folha')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba de "Folha" (Lançamento ou Histórico) para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    // Aceita: "Lançamento Folha", "V. 2025-01-01 - Folha", "V. 2025-01-01 - Folha Pagamento"
+    const isFolha = nomeAba.toLowerCase().includes('folha');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isFolha || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha" ou "Histórico Folha" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -1144,10 +1149,13 @@ function enviarBeneficiosParaAPI() {
     const nomeAba = sheet.getName();
     const ui = SpreadsheetApp.getUi();
 
-    // ACEITAR SNAPSHOTS E LANÇAMENTOS
-    const isBeneficios = nomeAba.toLowerCase().includes('benefi');
-    if (!isBeneficios) {
-        ui.alert('⚠️ Aba Incorreta', 'Esta não é uma aba de Benefícios.', ui.ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isBeneficios = nomeAba.toLowerCase().includes('benef');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isBeneficios || (!isSnapshot && !isLancamento)) {
+        ui.alert('⚠️ Aba Incorreta', 'Esta não é uma aba de Benefícios (Lançamento ou Histórico).', ui.ButtonSet.OK);
         return;
     }
 
@@ -1400,8 +1408,13 @@ function enviarVariavelParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Variável')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Variável ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isVariavel = nomeAba.toLowerCase().includes('vari') || nomeAba.toLowerCase().includes('comis');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isVariavel || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Variável" ou "Histórico Variável".', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -1601,8 +1614,13 @@ function enviarApontamentosParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Apontamentos')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Apontamentos ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isApontamentos = nomeAba.toLowerCase().includes('apont') || nomeAba.toLowerCase().includes('ponto');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isApontamentos || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Apontamentos" ou "Histórico Apontamentos" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 

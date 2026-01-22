@@ -1057,12 +1057,27 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
         });
     }
 
-    // Prioridade 2: Dados da Aba (Fallback se API falhar)
+    // Prioridade 2: Dados do Snapshot (dadosMap) - Para garantir que snapshots tenham cidade e nome
+    if (dadosMap) {
+        for (const [cpf, itens] of Object.entries(dadosMap)) {
+            // dadosMap é um MAP de CPF -> ARRAY de itens
+            // Pega o primeiro item para extrair metadados do colab
+            const d = itens[0];
+            if (d && !mapDados[cpf]) {
+                 mapDados[cpf] = {
+                    nome: d.nome || d.nome_colaborador || d.nome_completo || 'Sem Nome',
+                    cidade: d.cidade || d.local_trabalho || '-'
+                 };
+            }
+        }
+    }
+
+    // Prioridade 3: Dados da Aba Colaboradores (Fallback final)
     const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
     const dadosColab = sheetColab.getDataRange().getValues();
     for (let i = 5; i < dadosColab.length; i++) {
         const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API
+        if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API nem do Snapshot
             mapDados[cpfLimpo] = {
                 nome: dadosColab[i][2],
                 cidade: dadosColab[i][4] || '-'
@@ -1072,17 +1087,25 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
 
     // Gerar Linhas
     const linhas = cpfs.map((cpf, index) => {
-        const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '' };
+        const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '-' };
         const seq = String(index + 1).padStart(4, '0');
 
         let valAlim = sheet.getRange('C10').getValue();
         let valTransp = sheet.getRange('C6').getValue();
 
         if (dadosMap && dadosMap[cpf]) {
-            const alim = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_alimentacao');
-            const transp = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_transporte');
-            valAlim = alim ? alim.valor : 0;
-            valTransp = transp ? transp.valor : 0;
+            // Snapshot pode ser Lista (tipo_beneficio) ou já processado flat
+            const itens = dadosMap[cpf];
+            
+            // Tenta achar itens por tipo
+            const alim = itens.find(x => x.tipo_beneficio === 'vale_alimentacao' || x.vale_alimentacao);
+            const transp = itens.find(x => x.tipo_beneficio === 'vale_transporte' || x.vale_transporte);
+            
+            if (alim) valAlim = alim.valor || alim.vale_alimentacao || 0;
+            if (transp) valTransp = transp.valor || transp.vale_transporte || 0;
+            
+            // Se for um snapshot "flat" que tem tudo num objeto só (ex: restored from folha?)
+            // Mas beneficios geralmente é lista.
         }
 
         return [
@@ -2895,250 +2918,134 @@ function carregarSnapshotParaAba(id) {
     const itens = res.itens;
     const tipo = header.tipo;
 
-    // METADADOS CRÍTICOS
-    const metadados = {
-        snapshot_id: header.id,
-        data_geracao: header.created_at,
-        mes_referencia: header.mes_referencia,
-        ano_referencia: header.ano_referencia,
-        tipo: tipo
-    };
+    // =====================================================
+    // HELPERS CRÍTICOS (CORREÇÃO DE SNAPSHOTS)
+    // =====================================================
 
-    // ROTEAMENTO POR TIPO
-    if (tipo === 'folha' || tipo === 'folha_pagamento') {
-        restaurarSnapshotFolha(itens, metadados);
-    } else if (tipo === 'beneficios') {
-        restaurarSnapshotBeneficios(itens, metadados);
-    } else if (tipo === 'variavel') {
-        restaurarSnapshotVariavel(itens, metadados);
-    } else if (tipo === 'apontamentos') {
-        restaurarSnapshotApontamentos(itens, metadados);
-    } else {
-        throw new Error('Tipo de snapshot não suportado: ' + tipo);
-    }
+    function mapearColunasDoHeader(headers, mapeamentoPossivel) {
+        const map = {};
+        const headersNorm = headers.map(h => String(h).toUpperCase().trim());
 
-    return { success: true };
-}
-
-// === RESTAURADORES ESPECÍFICOS ===
-
-function restaurarSnapshotBeneficios(itens, metadados) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
-    const nomeAba = `V. ${dataStr} - Benefícios ${metadados.mes_referencia}/${metadados.ano_referencia}`;
-
-    // Criar ou limpar aba
-    let sheet = ss.getSheetByName(nomeAba);
-    if (sheet) sheet.clear();
-    else sheet = ss.insertSheet(nomeAba);
-
-    // === CORES DO TEMPLATE ORIGINAL ===
-    const COR_AMARELO = '#f1c232';
-    const COR_VERDE_FIXO = '#d9ead3';
-
-    // === RECONSTRUIR CABEÇALHO DE PARÂMETROS ===
-    
-    // TRANSPORTE (B2:C6)
-    sheet.getRange('B2:C2').merge().setValue('Transporte')
-        .setBackground(COR_AMARELO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true,true,true,true,true,true);
-    sheet.getRange('B3').setValue('VALOR DIA').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C3').setValue(14.35).setNumberFormat('R$ #,##0.00').setBorder(true,true,true,true,true,true);
-    sheet.getRange('B4').setValue('DIAS CORRIDOS NO MÊS').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C4').setValue(20).setBorder(true,true,true,true,true,true);
-    sheet.getRange('B5').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C5').setFormula('=C3*C4').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('B6').setValue('VALOR FIXO').setFontWeight('bold').setBackground(COR_VERDE_FIXO).setBorder(true,true,true,true,true,true);
-    sheet.getRange('C6').setValue(330.00).setNumberFormat('R$ #,##0.00').setBackground(COR_VERDE_FIXO).setBorder(true,true,true,true,true,true);
-
-    // ALIMENTAÇÃO (B7:C10)
-    sheet.getRange('B7:C7').merge().setValue('Alimentação')
-        .setBackground(COR_AMARELO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true,true,true,true,true,true);
-    sheet.getRange('B8').setValue('VALOR DIA').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C8').setValue(35.00).setNumberFormat('R$ #,##0.00').setBorder(true,true,true,true,true,true);
-    sheet.getRange('B9').setValue('DIAS ÚTEIS NO MÊS').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C9').setValue(20).setBorder(true,true,true,true,true,true);
-    sheet.getRange('B10').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-    sheet.getRange('C10').setFormula('=C8*C9').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true,true,true,true,true,true);
-
-    // TOTALIZADORES (E9:F11)
-    sheet.getRange('E9:F9').merge().setValue('Total Beneficios').setHorizontalAlignment('center');
-    sheet.getRange('E10:F10').merge().setFormula('=E11+F11').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
-    sheet.getRange('E11').setFormula('=SUM(E13:E)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
-    sheet.getRange('F11').setFormula('=SUM(F13:F)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
-    
-    // HEADERS COLS (E12, F12)
-    sheet.getRange('E12').setValue('Alimentação').setFontWeight('bold').setBackground(COR_AMARELO).setBorder(true,true,true,true,true,true).setHorizontalAlignment('center');
-    sheet.getRange('F12').setValue('Transporte').setFontWeight('bold').setBackground(COR_AMARELO).setBorder(true,true,true,true,true,true).setHorizontalAlignment('center');
-
-    // === CABEÇALHO DA TABELA (Linha 12) ===
-    const headers = ['#', 'NOME', 'Cidade', 'FÉRIAS', 'Alimentação', 'Transporte'];
-    sheet.getRange(12, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold')
-        .setBorder(true, true, true, true, true, true)
-        .setHorizontalAlignment('center');
-    
-    sheet.getRange(12, 4, 1, 3).setBackground(COR_AMARELO); // Cols D, E, F
-    sheet.getRange(12, 1, 1, 3).setBackground('#f3f3f3'); // Cols A, B, C
-
-    // === DADOS DO SNAPSHOT (A PARTIR DA LINHA 13) ===
-    const linhas = itens.map((item, index) => {
-        const d = item.dados_snapshot;
-        
-        // Normalizar campos (snapshot pode ter variações de nome)
-        const nome = d.nome || d.nome_colaborador || d.nome_completo || 'SEM NOME';
-        const cidade = d.cidade || d.local_trabalho || '';
-        const ferias = d.ferias || '';
-        
-        // VALORES SALVOS (não recalcular)
-        // Lógica: Se vier como Lista (tipo_beneficio + valor), mapear.
-        // Se vier como Matriz (vale_alimentacao/vale_transporte), mapear.
-        
-        let valAlim = 0;
-        let valTransp = 0;
-
-        // Caso 1: Item representa UM beneficio (Lista) <- Comum no snapshot atual
-        if (d.tipo_beneficio === 'vale_alimentacao') valAlim = parseFloat(d.valor);
-        else if (d.vale_alimentacao) valAlim = parseFloat(d.vale_alimentacao);
-        else if (d.alimentacao) valAlim = parseFloat(d.alimentacao);
-
-        if (d.tipo_beneficio === 'vale_transporte') valTransp = parseFloat(d.valor);
-        else if (d.vale_transporte) valTransp = parseFloat(d.vale_transporte);
-        else if (d.transporte) valTransp = parseFloat(d.transporte);
-
-        // Caso Multilinha: O banco retorna VÁRIAS linhas para o mesmo CPF se for lista.
-        // O `itens` aqui é a lista bruta do banco.
-        // Se o snapshot foi salvo como LISTA, teremos 2 linhas pro Alan.
-        // Precisamos agrupar por CPF antes de desenhar a tabela MATRIZ.
-        return { 
-            cpf: d.cpf ? String(d.cpf).replace(/\D/g,'') : '000', 
-            nome, cidade, ferias, valAlim, valTransp 
-        };
-    });
-
-    // Agrupamento por CPF (Transformar Lista em Matriz)
-    const mapaCPF = {};
-    linhas.forEach(l => {
-        if (!mapaCPF[l.cpf]) {
-            mapaCPF[l.cpf] = { ...l }; // Clone inicial
-        } else {
-            // Soma/Merge se já existe
-            if (l.valAlim > 0) mapaCPF[l.cpf].valAlim = l.valAlim;
-            if (l.valTransp > 0) mapaCPF[l.cpf].valTransp = l.valTransp;
+        for (const [campoFinal, variacoes] of Object.entries(mapeamentoPossivel)) {
+            let colIndex = -1;
+            // Tenta encontrar alguma variação nos headers
+            for (const v of variacoes) {
+                const vNorm = String(v).toUpperCase().trim();
+                colIndex = headersNorm.findIndex(h => h === vNorm || h.includes(vNorm));
+                if (colIndex > -1) break;
+            }
+            if (colIndex > -1) {
+                map[campoFinal] = colIndex;
+            }
         }
-    });
-
-    const linhasFinais = Object.values(mapaCPF).map((l, i) => {
-        const seq = String(i + 1).padStart(4, '0');
-        return [seq, l.nome, l.cidade, l.ferias, l.valAlim, l.valTransp];
-    });
-
-    if (linhasFinais.length > 0) {
-        sheet.getRange(13, 1, linhasFinais.length, headers.length).setValues(linhasFinais);
-        sheet.getRange(13, 5, linhasFinais.length, 2).setNumberFormat('R$ #,##0.00'); // Cols E, F
-        sheet.getRange(13, 1, linhasFinais.length, 1).setHorizontalAlignment('center'); // # centralizado
-        sheet.getRange(13, 3, linhasFinais.length, 1).setHorizontalAlignment('center'); // Cidade centralizada
+        return map;
     }
 
-    // === LARGURAS ===
-    sheet.setColumnWidth(1, 50);  // #
-    sheet.setColumnWidth(2, 300); // Nome
-    sheet.setColumnWidth(3, 100); // Cidade
-    sheet.setColumnWidth(4, 150); // Férias
-    sheet.setColumnWidth(5, 120); // Alim
-    sheet.setColumnWidth(6, 120); // Transp
+    function normalizarDadosParaEnvio(dados, tipo) {
+        return dados.map(item => {
+            // Clone raso
+            const normalizado = JSON.parse(JSON.stringify(item));
 
-    // === METADADOS OCULTOS (Linha 1 - Invisível) ===
-    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff');
-    sheet.setRowHeight(1, 1); // Quase invisível
+            // Normalização de Nomes
+            if (normalizado.nome_colaborador && !normalizado.nome) normalizado.nome = normalizado.nome_colaborador;
+            if (normalizado.nome_completo && !normalizado.nome) normalizado.nome = normalizado.nome_completo;
 
-    ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',
-        `Snapshot de ${dataStr}\nCompetência: ${metadados.mes_referencia}/${metadados.ano_referencia}\n\nEdite os valores e use "Enviar Benefícios" para salvar.`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
+            // Limpeza de campos internos de snapshot
+            delete normalizado.dados_snapshot;
+            delete normalizado.relatorio_id;
+            delete normalizado.created_at;
+            delete normalizado.id; // ID do snapshot não deve ir como ID do registro novo
 
-function restaurarSnapshotFolha(itens, metadados) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
-    const nomeAba = `V. ${dataStr} - Folha ${metadados.mes_referencia}/${metadados.ano_referencia}`;
+            // Garantias por Tipo
+            if (tipo === 'folha') {
+                normalizado.mes_referencia = normalizado.mes_referencia || normalizado.mes || 0;
+                normalizado.ano_referencia = normalizado.ano_referencia || normalizado.ano || 0;
+            }
 
-    let sheet = ss.getSheetByName(nomeAba);
-    if (sheet) sheet.clear();
-    else sheet = ss.insertSheet(nomeAba);
+            return normalizado;
+        });
+    }
 
-    const headers = [
-        'CPF', 'Nome', 'Mês', 'Ano',
-        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
-        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
-        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
-        'Odont. Func.', 'Odont. Dep.',
-        'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
-    ];
+    // 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (REFATORADA V4)
+    function carregarSnapshotParaAba(id) {
+        const res = obterHistoricoAPI(id);
+        if (!res.success) throw new Error(res.error);
 
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-        .setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
+        const header = res.relatorio;
+        const itens = res.itens;
+        const tipo = header.tipo;
+        const periodo = { mes: header.mes_referencia, ano: header.ano_referencia };
 
-    const linhas = itens.map(item => {
-        const d = item.dados_snapshot;
-        const nome = d.nome || d.nome_colaborador || 'SEM NOME';
-        const cpf = d.cpf ? formatarCPFParaExibicao(d.cpf) : '';
-        const formatDate = (val) => {
-            if (!val) return '';
-            const dt = new Date(val);
-            return isNaN(dt.getTime()) ? '' : dt.toISOString().split('T')[0];
+        // Normalizar dados recuperados
+        const dadosNormalizados = itens.map(i => {
+            // O item em si tem metadados do snapshot (id, relatorio_id), o payload real está em dados_snapshot
+            let d = i.dados_snapshot || {};
+            // Se o JSON do banco vier "spread", tentamos usar o próprio item
+            if (!i.dados_snapshot) d = i;
+
+            // Normalizações básicas
+            if (d.nome_colaborador && !d.nome) d.nome = d.nome_colaborador;
+            return d;
+        });
+
+        const cpfs = dadosNormalizados
+            .filter(d => d.cpf)
+            .map(d => String(d.cpf).replace(/\D/g, ''));
+
+        // Preparar dadosMap (CPF -> Array de dados)
+        const dadosMap = {};
+        dadosNormalizados.forEach(d => {
+            if (!d.cpf) return;
+            const cpfLimpo = String(d.cpf).replace(/\D/g, '');
+            if (!dadosMap[cpfLimpo]) dadosMap[cpfLimpo] = [];
+            dadosMap[cpfLimpo].push(d);
+        });
+
+        // ROTEAMENTO
+        if (tipo === 'folha' || tipo === 'folha_pagamento') {
+            // Folha espera dadosMap onde cada entrada é uma lista (geralmente de 1 item)
+            criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap, []);
+
+        } else if (tipo === 'beneficios') {
+            // Benefícios: passamos dadosMap como 4o argumento (fallback de local)
+            // OBS: Corrigido para garantir que a cidade venha dos dadosMap se não tiver API
+            criarPlanilhaBeneficiosCaju(cpfs, periodo, [], dadosMap);
+
+        } else if (tipo === 'variavel') {
+            criarPlanilhaVariavel(cpfs, periodo, dadosMap);
+
+        } else if (tipo === 'apontamentos') {
+            criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap);
+
+        } else {
+            SpreadsheetApp.getUi().alert('Tipo desconhecido', `O tipo "${tipo}" não tem restaurador implementado.`, SpreadsheetApp.getUi().ButtonSet.OK);
+            return;
+        }
+
+        // RENOMEAR PARA PADRÃO DE SNAPSHOT
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getActiveSheet();
+        const dataCriacao = header.created_at ? header.created_at.substring(0, 10) : new Date().toISOString().substring(0, 10);
+        const novoNome = `V. ${dataCriacao} - ${tipo}`;
+
+        // Validar duplicidade de nome
+        if (ss.getSheetByName(novoNome)) {
+            ss.deleteSheet(ss.getSheetByName(novoNome));
+        }
+        sheet.setName(novoNome);
+
+        // Inserir ID do Snapshot na celula A1 (Oculta) para referencia futura
+        // Isso ajuda o enviar...API a saber que é uma atualização
+        // Mas CUIDADO: O usuário pediu para aceitar "V. ..." como detecção também.
+        // Vamos garantir que metadados existam.
+        const metadados = {
+            snapshot_id: header.id,
+            tipo: tipo,
+            mes_referencia: periodo.mes,
+            ano_referencia: periodo.ano
         };
-
-        return [
-            cpf, nome,
-            d.mes_referencia || metadados.mes_referencia,
-            d.ano_referencia || metadados.ano_referencia,
-            d.local_trabalho || '',
-            formatDate(d.data_admissao),
-            parseFloat(d.socio || 0),
-            parseFloat(d.salario_base || 0),
-            d.cargo || '',
-            d.departamento || '',
-            d.convenio_escolhido || '',
-            formatDate(d.data_nascimento),
-            d.idade || '',
-            d.faixa_etaria || '',
-            parseFloat(d.vl_100_amil || 0),
-            parseFloat(d.vl_empresa_amil || 0),
-            parseFloat(d.vl_func_amil || 0),
-            parseFloat(d.amil_saude_dep || 0),
-            parseFloat(d.odont_func || 0),
-            parseFloat(d.odont_dep || 0),
-            d.status_pagamento || 'pendente',
-            formatDate(d.data_pagamento),
-            d.observacoes || ''
-        ];
-    });
-
-    if (linhas.length > 0) {
-        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+        sheet.insertRowBefore(1);
+        sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+        sheet.setRowHeight(1, 1);
     }
-    sheet.setColumnWidth(2, 200);
-    sheet.setFrozenColumns(2);
 
-    // Metadados
-    sheet.insertRowBefore(1);
-    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff');
-    sheet.setRowHeight(1, 1);
-
-    ss.setActiveSheet(sheet);
-    SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',
-        `Snapshot de ${dataStr}\nCompetência: ${metadados.mes_referencia}/${metadados.ano_referencia}`,
-        SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-// Stubs para Variavel e Apontamentos (Placeholder)
-function restaurarSnapshotVariavel(itens, metadados) {
-    // Implementar similar se necessario, ou usar generico
-    const layouts = obterLayoutPorTipoAPI(itens.map(i=>i.dados_snapshot), 'variavel');
-    // ... Logica de criacao generica por enquanto ...
-     SpreadsheetApp.getUi().alert('Ainda não implementado', 'Restauração de Variável em breve.', SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function restaurarSnapshotApontamentos(itens, metadados) {
-     SpreadsheetApp.getUi().alert('Ainda não implementado', 'Restauração de Apontamentos em breve.', SpreadsheetApp.getUi().ButtonSet.OK);
-}

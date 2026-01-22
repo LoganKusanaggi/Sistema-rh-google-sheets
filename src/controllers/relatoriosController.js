@@ -245,7 +245,13 @@ const relatoriosController = {
 
             if (error) throw error;
 
-            res.json({ success: true, relatorio });
+            // Compatibilidade com GAS: enviar itens na raiz
+            const itens = relatorio.itens || [];
+
+            // Limpeza opcional: remover itens de dentro do objeto relatorio para economizar bytes?
+            // delete relatorio.itens; 
+
+            res.json({ success: true, relatorio, itens });
         } catch (error) {
             console.error('Erro ao obter histórico:', error);
             res.status(500).json({ success: false, error: error.message });

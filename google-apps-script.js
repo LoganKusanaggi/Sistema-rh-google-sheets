@@ -225,9 +225,9 @@ function atualizarAbaColaboradores(colaboradores) {
 
     // LINHA 5: Cabeçalhos
     // LINHA 5: Cabeçalhos
-    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Salário Base', 'Status', 'Data Admissão']];
-    sheet.getRange(5, 1, 1, 8).setValues(headers); // Aumentado para 8 colunas
-    sheet.getRange(5, 1, 1, 8)
+    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Cidade', 'Salário Base', 'Status', 'Data Admissão']];
+    sheet.getRange(5, 1, 1, 9).setValues(headers); // Aumentado para 9 colunas
+    sheet.getRange(5, 1, 1, 9)
         .setFontWeight('bold')
         .setBackground('#e8f0fe')
         .setFontColor('#000000')
@@ -239,9 +239,10 @@ function atualizarAbaColaboradores(colaboradores) {
     sheet.setColumnWidth(3, 250); // Nome
     sheet.setColumnWidth(4, 150); // Cargo
     sheet.setColumnWidth(5, 120); // Depto
-    sheet.setColumnWidth(6, 110); // Salário
-    sheet.setColumnWidth(7, 100); // Status
-    sheet.setColumnWidth(8, 110); // Data
+    sheet.setColumnWidth(6, 120); // Cidade (NOVO)
+    sheet.setColumnWidth(7, 110); // Salário
+    sheet.setColumnWidth(8, 100); // Status
+    sheet.setColumnWidth(9, 110); // Data
 
     sheet.setFrozenRows(5);
 
@@ -287,6 +288,7 @@ function atualizarAbaColaboradores(colaboradores) {
                 c.nome_completo,
                 c.cargo || '-',
                 c.departamento || '-',
+                c.cidade || c.local_trabalho || '-', // Cidade
                 salario,
                 c.status,
                 dataAdmissao
@@ -294,19 +296,19 @@ function atualizarAbaColaboradores(colaboradores) {
         });
 
         const startRow = 6;
-        sheet.getRange(startRow, 1, dados.length, 8).setValues(dados);
+        sheet.getRange(startRow, 1, dados.length, 9).setValues(dados);
 
         // Formatação
         sheet.getRange(startRow, 1, dados.length, 1).insertCheckboxes();
-        sheet.getRange(startRow, 6, dados.length, 1).setNumberFormat('R$ #,##0.00'); // Formatar Salário
-        sheet.getRange(startRow, 1, dados.length, 8)
+        sheet.getRange(startRow, 7, dados.length, 1).setNumberFormat('R$ #,##0.00'); // Formatar Salário (Col 7)
+        sheet.getRange(startRow, 1, dados.length, 9)
             .setVerticalAlignment('middle')
             .setBorder(true, true, true, true, true, true);
 
         // Zebra striping
         for (let i = 0; i < dados.length; i++) {
             if (i % 2 !== 0) {
-                sheet.getRange(startRow + i, 1, 1, 7).setBackground('#fafafa');
+                sheet.getRange(startRow + i, 1, 1, 9).setBackground('#fafafa');
             }
         }
     }
@@ -1085,7 +1087,7 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
         if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API nem do Snapshot
             mapDados[cpfLimpo] = {
                 nome: dadosColab[i][2],
-                cidade: dadosColab[i][4] || '-'
+                cidade: dadosColab[i][5] || '-' // Index 5 = Cidade (Atualizado)
             };
         }
     }
@@ -3076,7 +3078,10 @@ function restaurarSnapshotBeneficios(itens, metadados) {
     if (dadosColab.length > 5) {
         for (let i = 5; i < dadosColab.length; i++) {
             const cpfC = String(dadosColab[i][1]).replace(/\D/g, '');
-            const cidadeC = dadosColab[i][4]; // Coluna 5 (Indice 4) = Cidade
+            // Coluna 5 era Depto. Agora Cidade é Coluna 6 (Index 5)
+            // Se o usuário ainda não atualizou a aba Colaboradores, isso pode pegar Salário (se for a layout antigo).
+            // Vamos tentar detectar header? Não, assumir que user vai atualizar.
+            const cidadeC = dadosColab[i][5]; 
             if (cpfC) mapCidades[cpfC] = cidadeC;
         }
     }

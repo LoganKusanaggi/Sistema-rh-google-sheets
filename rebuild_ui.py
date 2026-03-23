@@ -5,11 +5,20 @@ file_path = "e:\\Projetos_GitHub\\rh-google-sheets\\Sistema-rh-google-sheets\\CO
 with open(file_path, "r", encoding="utf-8") as f:
     content = f.read()
 
-# Find where the Sprint 1 dashboard started
-marker = "// DASHBOARD ANALÍTICO (SPRINT 1)"
+# Find where the Sprint 2 dashboard started
+marker = "// =====================================================" + "\\n" + "// DASHBOARD GERENCIAL RH (PRO MAX - SPRINT 2)"
 idx = content.find(marker)
 if idx != -1:
     content = content[:idx]
+else:
+    # Fallback to Sprint 1
+    marker2 = "// DASHBOARD ANALÍTICO (SPRINT 1)"
+    idx2 = content.find(marker2)
+    if idx2 != -1:
+        content = content[:idx2]
+
+# Remove trailing newlines
+content = content.rstrip() + "\\n\\n"
 
 new_dashboard = """// =====================================================
 // DASHBOARD GERENCIAL RH (PRO MAX - SPRINT 2)
@@ -396,7 +405,7 @@ function abrirDashboardModal() {
             // 2. GRID KPIs (8 Cards)
             html += '<div class="kpi-grid">';
             html += buildKpiCard('Colab. Ativos', k.ativos.valor, k.ativos.variacao, k.ativos.sparkline, icons.users, false);
-            html += buildKpiCard('Colab. Inativos', k.inativos.valor, k.inativos.variacao, k.inativos.sparkline, icons.userOff, true); // Inativos subindo é ruim (inverse)
+            html += buildKpiCard('Colab. Inativos', k.inativos.valor, k.inativos.variacao, k.inativos.sparkline, icons.userOff, true); 
             html += buildKpiCard('Folha Bruta', formatBRL.format(k.folha.valor), k.folha.variacao, k.folha.sparkline, icons.money, true);
             html += buildKpiCard('Benefícios Totais', formatBRL.format(k.beneficios.valor), k.beneficios.variacao, k.beneficios.sparkline, icons.gift, true);
             
@@ -408,12 +417,10 @@ function abrirDashboardModal() {
 
             // 3. GRÁFICOS
             html += '<div class="chart-grid">';
-            
             html += '<div class="chart-card"><h3>Evolução da Folha (6 Meses)</h3><div id="cEvolucao" class="chart-container"></div></div>';
             html += '<div class="chart-card"><h3>Distribuição por Departamento</h3><div id="cDeptos" class="chart-container"></div></div>';
             html += '<div class="chart-card"><h3>Top Performers (Variável)</h3><div id="cPerformers" class="chart-container"></div></div>';
             html += '<div class="chart-card"><h3>Histórico de Admissões (12 Meses)</h3><div id="cAdmissoes" class="chart-container"></div></div>';
-            
             html += '</div>';
 
             // 4. INSIGHTS IA
@@ -424,7 +431,6 @@ function abrirDashboardModal() {
 
             document.getElementById('content_area').innerHTML = html;
 
-            // DRAW CHARTS
             if (payload.graficos) {
                 desenharGraficoEvolucao(payload.graficos.evolucao);
                 desenharGraficoDeptos(payload.graficos.departamentos);
@@ -432,7 +438,6 @@ function abrirDashboardModal() {
                 desenharGraficoAdmissoes(payload.graficos.contratacoes);
             }
 
-            // AUTO INSIGHTS
             document.getElementById('insights_content').innerHTML = compilarInsights(payload.kpis, payload.graficos);
         }
 
@@ -452,26 +457,23 @@ function abrirDashboardModal() {
                 arrow = '↓';
             }
 
-            // Converter background class para stroke color da linha SVG
             var strokeColor = '#475569';
             if (bgClass === 'up') strokeColor = 'var(--success)';
             if (bgClass === 'down') strokeColor = 'var(--danger)';
 
             var sparklineSvg = gerarSparkline(sparkArray, strokeColor);
 
-            return `
-              <div class="kpi-card">
-                <div class="kpi-header">
-                  <div class="kpi-title">${title}</div>
-                  <div class="kpi-icon" style="background:var(--primary-light); color:var(--primary)">${iconSvg}</div>
-                </div>
-                <div class="kpi-value">${value}</div>
-                <div class="kpi-footer">
-                  <div class="pill ${bgClass}">${arrow} ${varFormatada}</div>
-                  ${sparklineSvg}
-                </div>
-              </div>
-            `;
+            return '<div class="kpi-card">' +
+                   '  <div class="kpi-header">' +
+                   '    <div class="kpi-title">' + title + '</div>' +
+                   '    <div class="kpi-icon" style="background:var(--primary-light); color:var(--primary)">' + iconSvg + '</div>' +
+                   '  </div>' +
+                   '  <div class="kpi-value">' + value + '</div>' +
+                   '  <div class="kpi-footer">' +
+                   '    <div class="pill ' + bgClass + '">' + arrow + ' ' + varFormatada + '</div>' +
+                   '    ' + sparklineSvg +
+                   '  </div>' +
+                   '</div>';
         }
 
         // Gera line SVG chart estático (math approximation)
@@ -504,8 +506,8 @@ function abrirDashboardModal() {
             data.addColumn('number', 'Folha (R$)');
             data.addColumn('number', 'Benefícios (R$)');
 
-            evolucaoData.slice().reverse().forEach(item => {
-                data.addRow([item.mes, item.folha||0, item.beneficios||0]);
+            evolucaoData.slice().reverse().forEach(function(item) {
+                data.addRow([item.mes, item.folha || 0, item.beneficios || 0]);
             });
 
             var options = {
@@ -527,7 +529,9 @@ function abrirDashboardModal() {
             data.addColumn('string', 'Departamento');
             data.addColumn('number', 'Ativos');
             
-            depsData.sort((a,b) => b[1]-a[1]).forEach(row => data.addRow([row[0], parseInt(row[1])||0]));
+            depsData.sort(function(a,b) { return b[1] - a[1]; }).forEach(function(row) {
+                 data.addRow([row[0], parseInt(row[1])||0]);
+            });
 
             var options = {
                 fontName: 'Inter',
@@ -545,7 +549,7 @@ function abrirDashboardModal() {
             data.addColumn('string', 'Colaborador');
             data.addColumn('number', 'Comissão (R$)');
 
-            perfData.forEach(p => data.addRow([p.nome, p.valor]));
+            perfData.forEach(function(p) { data.addRow([p.nome, p.valor]); });
 
             var options = {
                 fontName: 'Inter',
@@ -565,7 +569,7 @@ function abrirDashboardModal() {
             data.addColumn('string', 'Mês');
             data.addColumn('number', 'Admissões');
 
-            admData.slice().reverse().forEach(a => data.addRow([a.mes, a.valor]));
+            admData.slice().reverse().forEach(function(a) { data.addRow([a.mes, a.valor]); });
 
             var options = {
                 fontName: 'Inter',
@@ -588,36 +592,32 @@ function abrirDashboardModal() {
             const warn  = '<svg width="16" height="16" stroke="var(--danger)" fill="none" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
             const info  = '<svg width="16" height="16" stroke="var(--primary)" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>';
 
-            // Regra 1: Folha
             if (kpis.folha.variacao > 3) {
-                lines.push({ ic: warn, t: `Custo de folha aumentou <b>${kpis.folha.variacao.toFixed(1)}%</b> vs mês anterior. Recomenda-se analisar impacto das horas extras/comissões.`});
+                lines.push({ ic: warn, t: 'Custo de folha aumentou <b>' + kpis.folha.variacao.toFixed(1) + '%</b> vs mês anterior. Recomenda-se analisar impacto das horas extras.' });
             } else if (kpis.folha.variacao < -1) {
-                lines.push({ ic: check, t: `Folha reduziu ${Math.abs(kpis.folha.variacao).toFixed(1)}%. Movimento que favorece o ticket médio.`});
+                lines.push({ ic: check, t: 'Folha reduziu ' + Math.abs(kpis.folha.variacao).toFixed(1) + '%. Movimento que favorece o ticket médio.' });
             }
 
-            // Regra 2: Turnover
             if (kpis.turnover.valor > 4) {
-                lines.push({ ic: warn, t: `Taxa de turnover alta (<b>${kpis.turnover.valor.toFixed(1)}%</b>). Isso indica risco de evasão e aumento de custos rescisórios.`});
+                lines.push({ ic: warn, t: 'Taxa de turnover alta (<b>' + kpis.turnover.valor.toFixed(1) + '%</b>). Isso indica risco de evasão e aumento de custos rescisórios.' });
             } else {
-                lines.push({ ic: check, t: `Turnover sob controle (${kpis.turnover.valor.toFixed(1)}%), sinalizando boa retenção de talentos no período.`});
+                lines.push({ ic: check, t: 'Turnover sob controle (' + kpis.turnover.valor.toFixed(1) + '%), sinalizando boa retenção de talentos no período.' });
             }
 
-            // Regra 3: Benefícios vs Folha
             if (kpis.folha.valor > 0) {
                 const benRatio = ((kpis.beneficios.valor / kpis.folha.valor) * 100).toFixed(1);
-                lines.push({ ic: info, t: `Atualmente os benefícios equivalem a <b>${benRatio}%</b> da base salarial. Padrão saudável de mercado varia de 15% a 25%.`});
+                lines.push({ ic: info, t: 'Atualmente os benefícios equivalem a <b>' + benRatio + '%</b> da base salarial. Padrão saudável de mercado varia de 15% a 25%.' });
             }
 
-            // Regra 4: Departamento mais caro formatado
             if (graficos.departamentos && graficos.departamentos.length > 0) {
-                let maxDep = graficos.departamentos.reduce((a,b) => a[1]>b[1] ? a : b);
+                let maxDep = graficos.departamentos.reduce(function(a,b) { return a[1]>b[1] ? a : b; });
                 let pct = ((maxDep[1] / kpis.ativos.valor) * 100).toFixed(1);
-                lines.push({ ic: info, t: `O departamento <b>${maxDep[0]}</b> é a maior força motriz atual, agrupando ${pct}% dos colaboradores ativos.`});
+                lines.push({ ic: info, t: 'O departamento <b>' + maxDep[0] + '</b> é a maior força motriz atual, agrupando ' + pct + '% dos colaboradores ativos.' });
             }
 
             var html = '';
-            lines.forEach(l => {
-                html += `<div class="insight-item"><div>${l.ic}</div><div>${l.t}</div></div>`;
+            lines.forEach(function(l) {
+                html += '<div class="insight-item"><div>' + l.ic + '</div><div>' + l.t + '</div></div>';
             });
             return html;
         }
@@ -636,6 +636,6 @@ function abrirDashboardModal() {
 """
 
 with open(file_path, "w", encoding="utf-8") as f:
-    f.write(content + "\\n" + new_dashboard)
+    f.write(content + new_dashboard)
 
-print("Pro Max Dashboard successfully injected!")
+print("Pro Max Dashboard successfully injected and backticks fixed!")

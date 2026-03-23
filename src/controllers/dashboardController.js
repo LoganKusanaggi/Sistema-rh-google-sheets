@@ -100,14 +100,13 @@ const dashboardController = {
             // ════════════════════════════════════════════════════════════════════
             // 3. BENEFÍCIOS TOTAIS
             // Tabela: beneficios | Campos: valor_total, mes_referencia, ano_referencia
+            // OBS: Esta tabela não tem campo departamento
             // ════════════════════════════════════════════════════════════════════
             let qBenAtual = supabase
                 .from('beneficios')
                 .select('valor_total')
                 .eq('mes_referencia', mes)
                 .eq('ano_referencia', ano);
-
-            if (departamento) qBenAtual = qBenAtual.eq('departamento', departamento);
 
             const { data: benAtualRows, error: eBen } = await qBenAtual;
 
@@ -120,42 +119,37 @@ const dashboardController = {
                 .eq('mes_referencia', mesAnt)
                 .eq('ano_referencia', anoAnt);
 
-            if (departamento) qBenAnt = qBenAnt.eq('departamento', departamento);
-
             const { data: benAntRows } = await qBenAnt;
             const benAnt = (benAntRows || []).reduce((s, r) => s + (parseFloat(r.valor_total) || 0), 0);
 
-            const sparklineBen = await getSparklineMensal('beneficios', 'valor_total', mes, ano, departamento);
+            const sparklineBen = await getSparklineMensal('beneficios', 'valor_total', mes, ano, null);
 
             // ════════════════════════════════════════════════════════════════════
             // 4. VARIÁVEL / BÔNUS
-            // Tabela: variavel | Campos: valor, mes_referencia, ano_referencia
+            // Tabela: apuracao_variavel | Campos: valor_variavel, mes_referencia, ano_referencia
+            // OBS: Esta tabela não tem campo departamento, então não aplicamos filtro
             // ════════════════════════════════════════════════════════════════════
             let qVarAtual = supabase
-                .from('variavel')
-                .select('valor')
+                .from('apuracao_variavel')
+                .select('valor_variavel')
                 .eq('mes_referencia', mes)
                 .eq('ano_referencia', ano);
-
-            if (departamento) qVarAtual = qVarAtual.eq('departamento', departamento);
 
             const { data: varAtualRows, error: eVar } = await qVarAtual;
 
             if (eVar) throw new Error('Variável: ' + eVar.message);
-            const varAtual = (varAtualRows || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
+            const varAtual = (varAtualRows || []).reduce((s, r) => s + (parseFloat(r.valor_variavel) || 0), 0);
 
             let qVarAnt = supabase
-                .from('variavel')
-                .select('valor')
+                .from('apuracao_variavel')
+                .select('valor_variavel')
                 .eq('mes_referencia', mesAnt)
                 .eq('ano_referencia', anoAnt);
 
-            if (departamento) qVarAnt = qVarAnt.eq('departamento', departamento);
-
             const { data: varAntRows } = await qVarAnt;
-            const varAnt = (varAntRows || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
+            const varAnt = (varAntRows || []).reduce((s, r) => s + (parseFloat(r.valor_variavel) || 0), 0);
 
-            const sparklineVar = await getSparklineMensal('variavel', 'valor', mes, ano, departamento);
+            const sparklineVar = await getSparklineMensal('apuracao_variavel', 'valor_variavel', mes, ano, null);
 
             // ════════════════════════════════════════════════════════════════════
             // 5. TURNOVER
@@ -235,7 +229,8 @@ const dashboardController = {
             for (const m of hist6Meses) {
                 let qF = supabase.from('folha_pagamento').select('salario_base').eq('mes_referencia', m.mesNum).eq('ano_referencia', m.ano);
                 let qB = supabase.from('beneficios').select('valor_total').eq('mes_referencia', m.mesNum).eq('ano_referencia', m.ano);
-                if (departamento) { qF = qF.eq('departamento', departamento); qB = qB.eq('departamento', departamento); }
+                if (departamento) qF = qF.eq('departamento', departamento);
+                // beneficios não tem campo departamento, então não aplicamos filtro
 
                 const [{ data: dF }, { data: dB }] = await Promise.all([qF, qB]);
                 const fVal = (dF || []).reduce((s, r) => s + (parseFloat(r.salario_base) || 0), 0);
@@ -244,13 +239,13 @@ const dashboardController = {
             }
 
             // ── Top Performers (Variável / Bônus) ──────────────────────────────
+            // Tabela: apuracao_variavel | Campo: valor_variavel, nome_vendedor
+            // OBS: Esta tabela não tem campo departamento
             let qPerformers = supabase
-                .from('variavel')
-                .select('cpf, valor, nome_colaborador')
+                .from('apuracao_variavel')
+                .select('cpf, valor_variavel, nome_vendedor')
                 .eq('mes_referencia', mes)
                 .eq('ano_referencia', ano);
-
-            if (departamento) qPerformers = qPerformers.eq('departamento', departamento);
 
             const { data: perfRows } = await qPerformers;
 
@@ -258,8 +253,8 @@ const dashboardController = {
             const mapPerf = {};
             (perfRows || []).forEach(r => {
                 const cpf = r.cpf;
-                if (!mapPerf[cpf]) mapPerf[cpf] = { nome: r.nome_colaborador || cpf, valor: 0 };
-                mapPerf[cpf].valor += parseFloat(r.valor) || 0;
+                if (!mapPerf[cpf]) mapPerf[cpf] = { nome: r.nome_vendedor || cpf, valor: 0 };
+                mapPerf[cpf].valor += parseFloat(r.valor_variavel) || 0;
             });
 
             // Se a tabela variavel não tiver nome_colaborador, buscar nomes separadamente

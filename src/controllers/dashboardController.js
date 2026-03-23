@@ -18,8 +18,8 @@ const dashboardController = {
 
             // 2. Total Folha Mês Atual (folha consolidada ou folha + horas)
             const { data: dadosFolha, error: errFolha } = await supabase
-                .from('l_folha')
-                .select('salario_base, desconto_faltas, he_valor, dsr_valor')
+                .from('folha_pagamento')
+                .select('salario_base, total_descontos, total_proventos')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 
@@ -28,18 +28,15 @@ const dashboardController = {
             let totalFolhaMes = 0;
             if (dadosFolha && dadosFolha.length > 0) {
                 totalFolhaMes = dadosFolha.reduce((acc, curr) => {
-                    const sal = parseFloat(curr.salario_base) || 0;
-                    const desc = parseFloat(curr.desconto_faltas) || 0;
-                    const he = parseFloat(curr.he_valor) || 0;
-                    const dsr = parseFloat(curr.dsr_valor) || 0;
-                    return acc + (sal + he + dsr - desc);
+                    const prov = parseFloat(curr.total_proventos) || 0;
+                    return acc + prov;
                 }, 0);
             }
 
             // 3. Total Benefícios (VR + VA) Mês Atual
             const { data: dadosBeneficios, error: errBen } = await supabase
-                .from('l_beneficios')
-                .select('valor_vr, valor_va, valor_vt, auxilio_creche, valor_mobilidade')
+                .from('beneficios')
+                .select('valor_total')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 
@@ -48,19 +45,14 @@ const dashboardController = {
             let totalBeneficiosMes = 0;
             if (dadosBeneficios && dadosBeneficios.length > 0) {
                 totalBeneficiosMes = dadosBeneficios.reduce((acc, curr) => {
-                    return acc +
-                        (parseFloat(curr.valor_vr) || 0) +
-                        (parseFloat(curr.valor_va) || 0) +
-                        (parseFloat(curr.valor_vt) || 0) +
-                        (parseFloat(curr.auxilio_creche) || 0) +
-                        (parseFloat(curr.valor_mobilidade) || 0);
+                    return acc + (parseFloat(curr.valor_total) || 0);
                 }, 0);
             }
 
             // 4. Total Variáveis Mês Atual
             const { data: dadosVariaveis, error: errVar } = await supabase
-                .from('l_variavel')
-                .select('valor_bruto')
+                .from('apuracao_variavel')
+                .select('salario_base, multiplicador')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 
@@ -69,7 +61,9 @@ const dashboardController = {
             let totalVariaveisMes = 0;
             if (dadosVariaveis && dadosVariaveis.length > 0) {
                 totalVariaveisMes = dadosVariaveis.reduce((acc, curr) => {
-                    return acc + (parseFloat(curr.valor_bruto) || 0);
+                    const sal = parseFloat(curr.salario_base) || 0;
+                    const mult = parseFloat(curr.multiplicador) || 0;
+                    return acc + (sal * mult);
                 }, 0);
             }
 

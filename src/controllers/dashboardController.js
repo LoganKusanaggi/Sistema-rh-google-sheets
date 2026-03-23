@@ -1,277 +1,377 @@
 const supabase = require('../config/supabase');
 
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Construir query base com filtro de departamento
+// ════════════════════════════════════════════════════════════════════════════
+function aplicarFiltroDepartamento(query, departamento) {
+    return departamento ? query.eq('departamento', departamento) : query;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Buscar último mês anterior com dados
+// ════════════════════════════════════════════════════════════════════════════
+function getMesAnterior(mes, ano) {
+    const mesAnt = mes === 1 ? 12 : mes - 1;
+    const anoAnt = mes === 1 ? ano - 1 : ano;
+    return { mesAnt, anoAnt };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Calcular variação percentual
+// ════════════════════════════════════════════════════════════════════════════
+function calcVariacao(atual, anterior) {
+    if (!anterior || anterior === 0) return 0;
+    return parseFloat((((atual - anterior) / anterior) * 100).toFixed(2));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPER: Sparkline de 6 meses anteriores para qualquer tabela/campo
+// ════════════════════════════════════════════════════════════════════════════
+async function getSparklineMensal(tabela, campo, mesRef, anoRef, dpto) {
+    const valores = [];
+    let m = mesRef, a = anoRef;
+    for (let i = 0; i < 6; i++) {
+        m--; if (m < 1) { m = 12; a--; }
+        let q = supabase.from(tabela).select(campo).eq('mes_referencia', m).eq('ano_referencia', a);
+        if (dpto) q = q.eq('departamento', dpto);
+        const { data } = await q;
+        const soma = (data || []).reduce((s, r) => s + (parseFloat(r[campo]) || 0), 0);
+        valores.unshift(soma);
+    }
+    return valores; // array de 6 elementos, do mais antigo para o mais recente
+}
+
 const dashboardController = {
     async obterResumo(req, res) {
         try {
-            const dataAtual = new Date();
-            const mesAtual = dataAtual.getMonth() + 1;
-            const anoAtual = dataAtual.getFullYear();
+            // ════════════════════════════════════════════════════════════════════
+            // LEITURA DOS FILTROS OPCIONAIS (QUERY PARAMS)
+            // ════════════════════════════════════════════════════════════════════
+            const mes = req.query.mes ? parseInt(req.query.mes) : new Date().getMonth() + 1;
+            const ano = req.query.ano ? parseInt(req.query.ano) : new Date().getFullYear();
+            const departamento = req.query.departamento || null;
 
-            // Mês anterior logic
-            const dtAnterior = new Date(anoAtual, mesAtual - 2, 1);
-            const mesAnterior = dtAnterior.getMonth() + 1;
-            const anoAnterior = dtAnterior.getFullYear();
+            const { mesAnt, anoAnt } = getMesAnterior(mes, ano);
+            const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-            // Utilities para histórico
-            const gerarMeses = (qtd) => {
-                const meses = [];
-                for (let i = qtd - 1; i >= 0; i--) {
-                    let d = new Date(anoAtual, mesAtual - 1 - i, 1);
-                    meses.push({ mes: d.getMonth() + 1, ano: d.getFullYear(), label: `${d.toLocaleString('pt-BR', { month: 'short' }).substring(0, 3)}/${d.getFullYear().toString().substring(2)}` });
-                }
-                return meses;
-            };
-            const hist6Meses = gerarMeses(6);
-            const hist12Meses = gerarMeses(12);
+            // ════════════════════════════════════════════════════════════════════
+            // 1. COLABORADORES ATIVOS / INATIVOS
+            // ════════════════════════════════════════════════════════════════════
+            let qAtivos = supabase.from('colaboradores').select('id', { count: 'exact', head: true }).eq('status', 'ativo');
+            let qInativos = supabase.from('colaboradores').select('id', { count: 'exact', head: true }).eq('status', 'inativo');
 
-            // ============================================
-            // 1. COLABORADORES (Ativos, Inativos, Turnover, Departamentos, Contratações)
-            // ============================================
-            const { data: cols, error: errColab } = await supabase
-                .from('colaboradores')
-                .select('id, status, departamento, data_admissao, data_demissao, data_nascimento');
-
-            if (errColab) throw errColab;
-
-            let colAtivosAtual = 0;
-            let colAtivosAnterior = 0;
-            let colInativosAtual = 0;
-            let colInativosAnterior = 0;
-            let demissoesMesAtual = 0;
-            let distDepartamentos = {};
-            let contratacoesDict = {};
-
-            hist12Meses.forEach(m => contratacoesDict[`${m.ano}-${m.mes}`] = 0);
-
-            const hoje = new Date();
-            const aniversariantesHoje = [];
-
-            if (cols) {
-                cols.forEach(c => {
-                    // Contagem Atual
-                    if (c.status === 'ativo') colAtivosAtual++;
-                    if (c.status === 'inativo') colInativosAtual++;
-
-                    // Departamentos (só ativos)
-                    if (c.status === 'ativo') {
-                        const dpt = c.departamento || 'N/A';
-                        distDepartamentos[dpt] = (distDepartamentos[dpt] || 0) + 1;
-                    }
-
-                    // Contagem Anterior (Lógica simplificada aproximada)
-                    // Se foi demitido neste mês ou no futuro, no mês passado estava ativo
-                    const dtAdm = c.data_admissao ? new Date(c.data_admissao) : null;
-                    const dtDem = c.data_demissao ? new Date(c.data_demissao) : null;
-
-                    const eraAtivoMesPassado = dtAdm && (dtAdm.getFullYear() < anoAnterior || (dtAdm.getFullYear() === anoAnterior && dtAdm.getMonth() + 1 <= mesAnterior)) &&
-                        (!dtDem || (dtDem.getFullYear() > anoAnterior || (dtDem.getFullYear() === anoAnterior && dtDem.getMonth() + 1 > mesAnterior)));
-
-                    if (eraAtivoMesPassado) colAtivosAnterior++;
-                    if (c.status === 'inativo' && !eraAtivoMesPassado) colInativosAnterior++;
-
-                    // Turnover: Quantos foram demitidos no mesAtual?
-                    if (dtDem && dtDem.getMonth() + 1 === mesAtual && dtDem.getFullYear() === anoAtual) {
-                        demissoesMesAtual++;
-                    }
-
-                    // Histórico de Contratações (12 meses)
-                    if (dtAdm) {
-                        const chave = `${dtAdm.getFullYear()}-${dtAdm.getMonth() + 1}`;
-                        if (contratacoesDict[chave] !== undefined) {
-                            contratacoesDict[chave]++;
-                        }
-                    }
-
-                    // Aniversariantes próximos (7 dias)
-                    if (c.data_nascimento && c.status === 'ativo') {
-                        const dtNasc = new Date(c.data_nascimento);
-                        const niverEsteAno = new Date(hoje.getFullYear(), dtNasc.getMonth(), dtNasc.getDate());
-                        const diffTime = Math.ceil((niverEsteAno - hoje) / (1000 * 60 * 60 * 24));
-                        if (diffTime >= 0 && diffTime <= 7) {
-                            aniversariantesHoje.push({ tipo: 'aniversario', mensagem: `Aniversário de ${c.nome_completo || 'Colaborador'} em ${diffTime === 0 ? 'HOJE' : diffTime + ' dias'}` });
-                        }
-                    }
-                });
+            if (departamento) {
+                qAtivos = qAtivos.eq('departamento', departamento);
+                qInativos = qInativos.eq('departamento', departamento);
             }
 
-            const turnoverAtual = colAtivosAtual > 0 ? (demissoesMesAtual / colAtivosAtual) * 100 : 0;
-            // Mockação de turnover do mês passado para KPI renderizar (sempre bom ter)
-            const turnoverAnterior = colAtivosAnterior > 0 ? (Math.random() * 2) : 0;
+            const [{ count: totalAtivos }, { count: totalInativos }] = await Promise.all([qAtivos, qInativos]);
 
-            const arrContratacoes = hist12Meses.map(m => {
-                return { mes: m.label, valor: contratacoesDict[`${m.ano}-${m.mes}`] || 0 };
-            });
-
-
-            // ============================================
-            // 2. FOLHA DE PAGAMENTO (6 meses)
-            // ============================================
-            const anoFiltro = mesAtual > 6 ? anoAtual : anoAtual - 1;
-            const { data: folhas, error: errFolhas } = await supabase
+            // ════════════════════════════════════════════════════════════════════
+            // 2. FOLHA BRUTA
+            // Tabela: folha_pagamento | Campos: salario_base, mes_referencia, ano_referencia, departamento
+            // ════════════════════════════════════════════════════════════════════
+            let qFolhaAtual = supabase
                 .from('folha_pagamento')
-                .select('*')
-                .gte('ano_referencia', anoFiltro);
+                .select('salario_base')
+                .eq('mes_referencia', mes)
+                .eq('ano_referencia', ano);
 
-            if (errFolhas) throw errFolhas;
+            if (departamento) qFolhaAtual = qFolhaAtual.eq('departamento', departamento);
 
-            let folhaAtual = 0;
-            let folhaAnterior = 0;
-            let folhaDict = {};
-            hist6Meses.forEach(m => folhaDict[`${m.ano}-${m.mes}`] = 0);
+            const { data: folhaAtualRows, error: eFolha } = await qFolhaAtual;
 
-            if (folhas) {
-                folhas.forEach(f => {
-                    let prov = parseFloat(f.total_proventos) || 0;
-                    if (prov === 0) prov = (parseFloat(f.salario_base) || 0) + (parseFloat(f.horas_extras) || 0) + (parseFloat(f.comissoes) || 0);
+            if (eFolha) throw new Error('Folha: ' + eFolha.message);
+            const folhaAtual = (folhaAtualRows || []).reduce((s, r) => s + (parseFloat(r.salario_base) || 0), 0);
 
-                    if (f.ano_referencia === anoAtual && f.mes_referencia === mesAtual) folhaAtual += prov;
-                    if (f.ano_referencia === anoAnterior && f.mes_referencia === mesAnterior) folhaAnterior += prov;
+            let qFolhaAnt = supabase
+                .from('folha_pagamento')
+                .select('salario_base')
+                .eq('mes_referencia', mesAnt)
+                .eq('ano_referencia', anoAnt);
 
-                    const chave = `${f.ano_referencia}-${f.mes_referencia}`;
-                    if (folhaDict[chave] !== undefined) folhaDict[chave] += prov;
-                });
-            }
+            if (departamento) qFolhaAnt = qFolhaAnt.eq('departamento', departamento);
 
+            const { data: folhaAntRows } = await qFolhaAnt;
+            const folhaAnt = (folhaAntRows || []).reduce((s, r) => s + (parseFloat(r.salario_base) || 0), 0);
 
-            // ============================================
-            // 3. BENEFÍCIOS (6 meses)
-            // ============================================
-            const { data: bens, error: errBens } = await supabase
+            const sparklineFolha = await getSparklineMensal('folha_pagamento', 'salario_base', mes, ano, departamento);
+
+            // ════════════════════════════════════════════════════════════════════
+            // 3. BENEFÍCIOS TOTAIS
+            // Tabela: beneficios | Campos: valor_total, mes_referencia, ano_referencia
+            // ════════════════════════════════════════════════════════════════════
+            let qBenAtual = supabase
                 .from('beneficios')
-                .select('*')
-                .gte('ano_referencia', anoFiltro);
+                .select('valor_total')
+                .eq('mes_referencia', mes)
+                .eq('ano_referencia', ano);
 
-            let benAtual = 0;
-            let benAnterior = 0;
-            let benDict = {};
-            hist6Meses.forEach(m => benDict[`${m.ano}-${m.mes}`] = 0);
+            if (departamento) qBenAtual = qBenAtual.eq('departamento', departamento);
 
-            if (bens && !errBens) {
-                bens.forEach(b => {
-                    let val = parseFloat(b.valor_total) || 0;
-                    if (val === 0) val = (parseFloat(b.valor_vr) || 0) + (parseFloat(b.valor_va) || 0) + (parseFloat(b.valor_vt) || 0);
+            const { data: benAtualRows, error: eBen } = await qBenAtual;
 
-                    if (b.ano_referencia === anoAtual && b.mes_referencia === mesAtual) benAtual += val;
-                    if (b.ano_referencia === anoAnterior && b.mes_referencia === mesAnterior) benAnterior += val;
+            if (eBen) throw new Error('Benefícios: ' + eBen.message);
+            const benAtual = (benAtualRows || []).reduce((s, r) => s + (parseFloat(r.valor_total) || 0), 0);
 
-                    const chave = `${b.ano_referencia}-${b.mes_referencia}`;
-                    if (benDict[chave] !== undefined) benDict[chave] += val;
-                });
+            let qBenAnt = supabase
+                .from('beneficios')
+                .select('valor_total')
+                .eq('mes_referencia', mesAnt)
+                .eq('ano_referencia', anoAnt);
+
+            if (departamento) qBenAnt = qBenAnt.eq('departamento', departamento);
+
+            const { data: benAntRows } = await qBenAnt;
+            const benAnt = (benAntRows || []).reduce((s, r) => s + (parseFloat(r.valor_total) || 0), 0);
+
+            const sparklineBen = await getSparklineMensal('beneficios', 'valor_total', mes, ano, departamento);
+
+            // ════════════════════════════════════════════════════════════════════
+            // 4. VARIÁVEL / BÔNUS
+            // Tabela: variavel | Campos: valor, mes_referencia, ano_referencia
+            // ════════════════════════════════════════════════════════════════════
+            let qVarAtual = supabase
+                .from('variavel')
+                .select('valor')
+                .eq('mes_referencia', mes)
+                .eq('ano_referencia', ano);
+
+            if (departamento) qVarAtual = qVarAtual.eq('departamento', departamento);
+
+            const { data: varAtualRows, error: eVar } = await qVarAtual;
+
+            if (eVar) throw new Error('Variável: ' + eVar.message);
+            const varAtual = (varAtualRows || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
+
+            let qVarAnt = supabase
+                .from('variavel')
+                .select('valor')
+                .eq('mes_referencia', mesAnt)
+                .eq('ano_referencia', anoAnt);
+
+            if (departamento) qVarAnt = qVarAnt.eq('departamento', departamento);
+
+            const { data: varAntRows } = await qVarAnt;
+            const varAnt = (varAntRows || []).reduce((s, r) => s + (parseFloat(r.valor) || 0), 0);
+
+            const sparklineVar = await getSparklineMensal('variavel', 'valor', mes, ano, departamento);
+
+            // ════════════════════════════════════════════════════════════════════
+            // 5. TURNOVER
+            // Fórmula: (desligados_no_mes / media_headcount) * 100
+            // Desligados = colaboradores com data_demissao dentro do mês filtrado
+            // ════════════════════════════════════════════════════════════════════
+            const inicioMes = `${ano}-${String(mes).padStart(2, '0')}-01`;
+            const fimMes = new Date(ano, mes, 0).toISOString().split('T')[0]; // último dia do mês
+
+            let qDeslig = supabase
+                .from('colaboradores')
+                .select('id', { count: 'exact', head: true })
+                .gte('data_demissao', inicioMes)
+                .lte('data_demissao', fimMes);
+
+            if (departamento) qDeslig = qDeslig.eq('departamento', departamento);
+
+            const { count: desligados } = await qDeslig;
+
+            const mediaHeadcount = ((totalAtivos || 0) + (desligados || 0)) / 2 || 1;
+            const turnoverAtual = parseFloat(((desligados / mediaHeadcount) * 100).toFixed(2));
+
+            // ════════════════════════════════════════════════════════════════════
+            // 6. VAGAS ABERTAS
+            // Se tabela não existir, retornar 0 explicitamente
+            // ════════════════════════════════════════════════════════════════════
+            let vagasAbertas = 0;
+            try {
+                const { count: cntVagas } = await supabase
+                    .from('vagas')
+                    .select('id', { count: 'exact', head: true })
+                    .eq('status', 'aberta');
+                vagasAbertas = cntVagas || 0;
+            } catch (eVagas) {
+                // Tabela não existe → retornar 0 sem quebrar o endpoint
+                vagasAbertas = 0;
+                console.warn('Tabela vagas não encontrada:', eVagas.message);
             }
 
+            // ════════════════════════════════════════════════════════════════════
+            // 7. TICKET MÉDIO (folha total / colaboradores ativos)
+            // ════════════════════════════════════════════════════════════════════
+            const ticketMedio = totalAtivos > 0 ? parseFloat((folhaAtual / totalAtivos).toFixed(2)) : 0;
 
-            // ============================================
-            // 4. VARIÁVEIS & TOP PERFORMERS
-            // ============================================
-            const { data: vars, error: errVar } = await supabase
-                .from('apuracao_variavel')
-                .select('*')
-                .gte('ano_referencia', anoFiltro);
+            // ════════════════════════════════════════════════════════════════════
+            // 8. GRÁFICOS
+            // ════════════════════════════════════════════════════════════════════
 
-            let varAtual = 0;
-            let varAnterior = 0;
-            let varDict = {};
-            hist6Meses.forEach(m => varDict[`${m.ano}-${m.mes}`] = 0);
+            // ── Distribuição por Departamento ──────────────────────────────────
+            let qDeptos = supabase
+                .from('colaboradores')
+                .select('departamento, status')
+                .eq('status', 'ativo');
 
-            // Top Performers mês atual
-            let performersMap = {};
+            if (departamento) qDeptos = qDeptos.eq('departamento', departamento);
 
-            if (vars && !errVar) {
-                vars.forEach(v => {
-                    let val = (parseFloat(v.salario_base) || 0) * (parseFloat(v.multiplicador) || 0);
-                    if (val === 0) val = parseFloat(v.valor_bruto) || 0;
+            const { data: deptosData } = await qDeptos;
 
-                    if (v.ano_referencia === anoAtual && v.mes_referencia === mesAtual) {
-                        varAtual += val;
-                        // Agrupar perfomers
-                        let id = v.colaborador_id || v.cpf;
-                        if (!performersMap[id]) performersMap[id] = { nome: v.nome_vendedor || 'Desconhecido', valor: 0 };
-                        performersMap[id].valor += val;
-                    }
-                    if (v.ano_referencia === anoAnterior && v.mes_referencia === mesAnterior) varAnterior += val;
-
-                    const chave = `${v.ano_referencia}-${v.mes_referencia}`;
-                    if (varDict[chave] !== undefined) varDict[chave] += val;
-                });
-            }
-
-            const topPerformers = Object.values(performersMap)
-                .sort((a, b) => b.valor - a.valor)
-                .slice(0, 5);
-
-
-            // ============================================
-            // FORMATADORES E CONSTRUÇÃO MO-M (Month-over-month)
-            // ============================================
-            const calcularMoM = (atual, anterior) => {
-                if (anterior === 0) return atual > 0 ? 100 : 0;
-                return ((atual - anterior) / anterior) * 100;
-            };
-
-            // Criar array combinado gráfico de Evolução da Folha + Benefícios
-            const arrEvolucao = hist6Meses.map(m => {
-                const k = `${m.ano}-${m.mes}`;
-                return { mes: m.label, folha: folhaDict[k] || 0, beneficios: benDict[k] || 0 };
+            const distDepartamentos = {};
+            (deptosData || []).forEach(c => {
+                const dpt = c.departamento || 'N/A';
+                distDepartamentos[dpt] = (distDepartamentos[dpt] || 0) + 1;
             });
 
-            const kpis = {
-                ativos: {
-                    valor: colAtivosAtual,
-                    variacao: calcularMoM(colAtivosAtual, colAtivosAnterior),
-                    sparkline: hist6Meses.map(m => colAtivosAtual + Math.floor(Math.random() * 5 - 2)) // Mock visual para ativos
-                },
-                inativos: {
-                    valor: colInativosAtual,
-                    variacao: calcularMoM(colInativosAtual, colInativosAnterior),
-                    sparkline: hist6Meses.map(m => colInativosAtual + Math.floor(Math.random() * 2))
-                },
-                folha: {
-                    valor: folhaAtual,
-                    variacao: calcularMoM(folhaAtual, folhaAnterior),
-                    sparkline: arrEvolucao.map(e => e.folha)
-                },
-                beneficios: {
-                    valor: benAtual,
-                    variacao: calcularMoM(benAtual, benAnterior),
-                    sparkline: arrEvolucao.map(e => e.beneficios)
-                },
-                variavel: {
-                    valor: varAtual,
-                    variacao: calcularMoM(varAtual, varAnterior),
-                    sparkline: hist6Meses.map(m => varDict[`${m.ano}-${m.mes}`] || 0)
-                },
-                turnover: {
-                    valor: turnoverAtual,
-                    variacao: turnoverAtual - turnoverAnterior, // variação absoluta
-                    sparkline: hist6Meses.map(m => Math.random() * 5)
-                },
-                vagas: {
-                    valor: 7, // Mock solicitado
-                    variacao: 15,
-                    sparkline: [4, 5, 8, 6, 9, 7]
-                },
-                ticketMedio: {
-                    valor: colAtivosAtual > 0 ? folhaAtual / colAtivosAtual : 0,
-                    variacao: colAtivosAnterior > 0 ? calcularMoM(folhaAtual / colAtivosAtual, folhaAnterior / colAtivosAnterior) : 0,
-                    sparkline: arrEvolucao.map(e => e.folha / (colAtivosAtual || 1))
-                }
-            };
+            const graficoDepartamentos = Object.entries(distDepartamentos).map(([k, v]) => [k, v]);
 
-            const alertas = [
-                ...aniversariantesHoje,
-                ...(folhaAtual > folhaAnterior * 1.15 ? [{ tipo: 'alerta', mensagem: '⚠️ Folha aumentou mais de 15% este mês!' }] : []),
-                { tipo: 'ferias', mensagem: '📅 2 pessoas entram em férias nos próximos dias.' },
-                { tipo: 'info', mensagem: `ℹ️ O dashboard reflete dados até o mês ${mesAtual}/${anoAtual}.` }
-            ];
+            // ── Evolução da Folha + Benefícios (6 meses) ───────────────────────
+            const hist6Meses = [];
+            for (let i = 5; i >= 0; i--) {
+                let m = mes - i;
+                let a = ano;
+                if (m < 1) { m += 12; a--; }
+                hist6Meses.push({ mes: meses[m - 1] + '/' + a.toString().substr(2), mesNum: m, ano: a });
+            }
 
-            return res.json({
+            const graficoEvolucao = [];
+            for (const m of hist6Meses) {
+                let qF = supabase.from('folha_pagamento').select('salario_base').eq('mes_referencia', m.mesNum).eq('ano_referencia', m.ano);
+                let qB = supabase.from('beneficios').select('valor_total').eq('mes_referencia', m.mesNum).eq('ano_referencia', m.ano);
+                if (departamento) { qF = qF.eq('departamento', departamento); qB = qB.eq('departamento', departamento); }
+
+                const [{ data: dF }, { data: dB }] = await Promise.all([qF, qB]);
+                const fVal = (dF || []).reduce((s, r) => s + (parseFloat(r.salario_base) || 0), 0);
+                const bVal = (dB || []).reduce((s, r) => s + (parseFloat(r.valor_total) || 0), 0);
+                graficoEvolucao.push({ mes: m.mes, folha: fVal, beneficios: bVal });
+            }
+
+            // ── Top Performers (Variável / Bônus) ──────────────────────────────
+            let qPerformers = supabase
+                .from('variavel')
+                .select('cpf, valor, nome_colaborador')
+                .eq('mes_referencia', mes)
+                .eq('ano_referencia', ano);
+
+            if (departamento) qPerformers = qPerformers.eq('departamento', departamento);
+
+            const { data: perfRows } = await qPerformers;
+
+            // Agrupar por CPF e somar valores
+            const mapPerf = {};
+            (perfRows || []).forEach(r => {
+                const cpf = r.cpf;
+                if (!mapPerf[cpf]) mapPerf[cpf] = { nome: r.nome_colaborador || cpf, valor: 0 };
+                mapPerf[cpf].valor += parseFloat(r.valor) || 0;
+            });
+
+            // Se a tabela variavel não tiver nome_colaborador, buscar nomes separadamente
+            const cpfsPerf = Object.keys(mapPerf);
+            if (cpfsPerf.length > 0) {
+                const { data: collabs } = await supabase
+                    .from('colaboradores')
+                    .select('cpf, nome_completo')
+                    .in('cpf', cpfsPerf);
+
+                (collabs || []).forEach(c => {
+                    if (mapPerf[c.cpf]) mapPerf[c.cpf].nome = c.nome_completo;
+                });
+            }
+
+            const performers = Object.values(mapPerf)
+                .sort((a, b) => b.valor - a.valor)
+                .slice(0, 8)
+                .map(p => ({
+                    nome: p.nome.split(' ').slice(0, 2).join(' '), // Primeiro + segundo nome
+                    valor: parseFloat(p.valor.toFixed(2))
+                }));
+
+            // ── Histórico de Admissões (12 meses) ──────────────────────────────
+            const hist12Meses = [];
+            for (let i = 11; i >= 0; i--) {
+                let m = mes - i;
+                let a = ano;
+                if (m < 1) { m += 12; a--; }
+                hist12Meses.push({ mes: meses[m - 1] + '/' + a.toString().substr(2), mesNum: m, ano: a });
+            }
+
+            const graficoAdmissoes = [];
+            for (const m of hist12Meses) {
+                const inicioM = `${m.ano}-${String(m.mesNum).padStart(2, '0')}-01`;
+                const fimM = new Date(m.ano, m.mesNum, 0).toISOString().split('T')[0];
+
+                let qAdm = supabase
+                    .from('colaboradores')
+                    .select('id', { count: 'exact', head: true })
+                    .gte('data_admissao', inicioM)
+                    .lte('data_admissao', fimM);
+
+                if (departamento) qAdm = qAdm.eq('departamento', departamento);
+
+                const { count } = await qAdm;
+                graficoAdmissoes.push({ mes: m.mes, valor: count || 0 });
+            }
+
+            // ════════════════════════════════════════════════════════════════════
+            // 9. ALERTAS (Letreiro)
+            // ════════════════════════════════════════════════════════════════════
+
+            // ── Aniversariantes do Mês ──────────────────────────────────────────
+            const { data: colabsAniversario } = await supabase
+                .from('colaboradores')
+                .select('nome_completo, data_nascimento')
+                .eq('status', 'ativo');
+
+            const aniversariantesDoMes = (colabsAniversario || []).filter(c => {
+                if (!c.data_nascimento) return false;
+                const nascMes = parseInt(c.data_nascimento.split('-')[1]);
+                return nascMes === mes;
+            }).map(c => {
+                const dia = c.data_nascimento.split('-')[2];
+                const primeiroNome = c.nome_completo.split(' ')[0];
+                return `🎂 Aniversário: ${primeiroNome} (dia ${dia})`;
+            });
+
+            // ── Resumos para o Ticker ───────────────────────────────────────────
+            const resumoAtivos = `👥 Ativos: ${totalAtivos || 0} | Inativos: ${totalInativos || 0}`;
+            const resumoFolha = folhaAtual > 0 ? `💰 Folha ${meses[mes - 1]}/${ano}: R$ ${folhaAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null;
+            const resumoTicket = ticketMedio > 0 ? `🎯 Ticket Médio: R$ ${ticketMedio.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : null;
+            const resumoTurnover = `🔄 Turnover ${meses[mes - 1]}: ${turnoverAtual.toFixed(1)}%`;
+
+            // ── Montar Array de Alertas ────────────────────────────────────────
+            const alertas = [];
+
+            // Sempre exibir no letreiro:
+            alertas.push({ mensagem: resumoAtivos });
+            if (resumoFolha) alertas.push({ mensagem: resumoFolha });
+            if (resumoTicket) alertas.push({ mensagem: resumoTicket });
+            alertas.push({ mensagem: resumoTurnover });
+
+            // Aniversariantes (um item por pessoa):
+            aniversariantesDoMes.forEach(msg => alertas.push({ mensagem: msg }));
+
+            // Fallback se não houver aniversariantes:
+            if (aniversariantesDoMes.length === 0) {
+                alertas.push({ mensagem: `🎂 Sem aniversariantes em ${meses[mes - 1]}` });
+            }
+
+            // ════════════════════════════════════════════════════════════════════
+            // MONTAR RESPOSTA FINAL
+            // ════════════════════════════════════════════════════════════════════
+            return res.status(200).json({
                 success: true,
-                kpis: kpis,
+                kpis: {
+                    ativos: { valor: totalAtivos || 0, variacao: 0, sparkline: [] },
+                    inativos: { valor: totalInativos || 0, variacao: 0, sparkline: [] },
+                    folha: { valor: folhaAtual, variacao: calcVariacao(folhaAtual, folhaAnt), sparkline: sparklineFolha },
+                    beneficios: { valor: benAtual, variacao: calcVariacao(benAtual, benAnt), sparkline: sparklineBen },
+                    variavel: { valor: varAtual, variacao: calcVariacao(varAtual, varAnt), sparkline: sparklineVar },
+                    turnover: { valor: turnoverAtual, variacao: 0, sparkline: [0, 0, 0, 0, 0, 0] },
+                    vagas: { valor: vagasAbertas, variacao: 0, sparkline: [0, 0, 0, 0, 0, 0] },
+                    ticketMedio: { valor: ticketMedio, variacao: 0, sparkline: [] }
+                },
                 graficos: {
-                    departamentos: Object.entries(distDepartamentos).map(([k, v]) => [k, v]),
-                    evolucao: arrEvolucao,
-                    performers: topPerformers,
-                    contratacoes: arrContratacoes
+                    departamentos: graficoDepartamentos,
+                    evolucao: graficoEvolucao,
+                    performers: performers,
+                    contratacoes: graficoAdmissoes
                 },
                 alertas: alertas
             });

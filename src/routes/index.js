@@ -9,6 +9,7 @@ const apontamentosController = require('../controllers/apontamentosController');
 const segurosController = require('../controllers/segurosController');
 const relatoriosController = require('../controllers/relatoriosController');
 const planosController = require('../controllers/planosController');
+const dashboardController = require('../controllers/dashboardController');
 
 const dependentesRoutes = require('./dependentesRoutes');
 
@@ -95,7 +96,8 @@ router.post('/relatorios/exportar', relatoriosController.exportarRelatorio);
 router.post('/relatorios/historico', relatoriosController.listarHistorico);
 router.get('/relatorios/historico/:id', relatoriosController.obterHistorico);
 
-
+// ===== ROTAS DE DASHBOARD (NOVO!) =====
+router.get('/dashboard/kpis', dashboardController.obterResumo);
 
 // ===== ROTA DE HEALTH CHECK =====
 router.get('/health', (req, res) => {

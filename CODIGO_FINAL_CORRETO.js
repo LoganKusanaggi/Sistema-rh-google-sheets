@@ -31,6 +31,8 @@ const CONFIG = {
 function onOpen() {
     const ui = SpreadsheetApp.getUi();
     ui.createMenu('🔄 Sistema RH')
+        .addItem('📈 Dashboard Analítico', 'abrirDashboardModal')
+        .addSeparator()
         .addSubMenu(ui.createMenu('👥 Colaboradores')
             .addItem('🔍 Buscar Colaborador', 'buscarColaboradorModal')
             .addItem('➕ Novo Colaborador', 'novoColaboradorModal')
@@ -225,9 +227,9 @@ function atualizarAbaColaboradores(colaboradores) {
 
     // LINHA 5: Cabeçalhos
     // LINHA 5: Cabeçalhos
-    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Salário Base', 'Status', 'Data Admissão']];
-    sheet.getRange(5, 1, 1, 8).setValues(headers); // Aumentado para 8 colunas
-    sheet.getRange(5, 1, 1, 8)
+    const headers = [['', 'CPF', 'Nome Completo', 'Cargo', 'Departamento', 'Cidade', 'Salário Base', 'Status', 'Data Admissão']];
+    sheet.getRange(5, 1, 1, 9).setValues(headers); // Aumentado para 9 colunas
+    sheet.getRange(5, 1, 1, 9)
         .setFontWeight('bold')
         .setBackground('#e8f0fe')
         .setFontColor('#000000')
@@ -239,9 +241,10 @@ function atualizarAbaColaboradores(colaboradores) {
     sheet.setColumnWidth(3, 250); // Nome
     sheet.setColumnWidth(4, 150); // Cargo
     sheet.setColumnWidth(5, 120); // Depto
-    sheet.setColumnWidth(6, 110); // Salário
-    sheet.setColumnWidth(7, 100); // Status
-    sheet.setColumnWidth(8, 110); // Data
+    sheet.setColumnWidth(6, 120); // Cidade (NOVO)
+    sheet.setColumnWidth(7, 110); // Salário
+    sheet.setColumnWidth(8, 100); // Status
+    sheet.setColumnWidth(9, 110); // Data
 
     sheet.setFrozenRows(5);
 
@@ -287,6 +290,7 @@ function atualizarAbaColaboradores(colaboradores) {
                 c.nome_completo,
                 c.cargo || '-',
                 c.departamento || '-',
+                c.cidade || c.local_trabalho || '-', // Cidade
                 salario,
                 c.status,
                 dataAdmissao
@@ -294,19 +298,19 @@ function atualizarAbaColaboradores(colaboradores) {
         });
 
         const startRow = 6;
-        sheet.getRange(startRow, 1, dados.length, 8).setValues(dados);
+        sheet.getRange(startRow, 1, dados.length, 9).setValues(dados);
 
         // Formatação
         sheet.getRange(startRow, 1, dados.length, 1).insertCheckboxes();
-        sheet.getRange(startRow, 6, dados.length, 1).setNumberFormat('R$ #,##0.00'); // Formatar Salário
-        sheet.getRange(startRow, 1, dados.length, 8)
+        sheet.getRange(startRow, 7, dados.length, 1).setNumberFormat('R$ #,##0.00'); // Formatar Salário (Col 7)
+        sheet.getRange(startRow, 1, dados.length, 9)
             .setVerticalAlignment('middle')
             .setBorder(true, true, true, true, true, true);
 
         // Zebra striping
         for (let i = 0; i < dados.length; i++) {
             if (i % 2 !== 0) {
-                sheet.getRange(startRow + i, 1, 1, 7).setBackground('#fafafa');
+                sheet.getRange(startRow + i, 1, 1, 9).setBackground('#fafafa');
             }
         }
     }
@@ -567,9 +571,14 @@ function aplicarLayoutRelatorio(sheet, tipo, dados) {
 
     // DADOS
     if (layout.dados && layout.dados.length > 0) {
-        const dadosTabela = layout.dados.map(linha => {
+        const dadosTabela = layout.dados.map((linha, idx) => {
             return layout.colunas.map(col => {
                 const valor = linha[col.campo];
+
+                // DEBUG RENDERING only for first row/first col
+                if (idx === 0 && col.campo === layout.colunas[0].campo) {
+                    console.log(`RENDER CHECK: Campo=${col.campo}, Valor=${valor}, Tipo=${typeof valor}`);
+                }
 
                 // Formatar valor baseado no tipo
                 if (col.formato === 'moeda' && typeof valor === 'number') {
@@ -633,13 +642,17 @@ function lancarFolha() {
     const periodo = pedirPeriodo();
     if (!periodo) return;
 
-    criarPlanilhaLancamentoFolha(cpfs, periodo);
+    // Buscar dados detalhados (Cargo, Admissão, etc.) da API
+    const dadosApi = buscarDadosColaboradores(cpfs);
+
+    // Passar dados da API para criação da planilha
+    criarPlanilhaLancamentoFolha(cpfs, periodo, null, dadosApi);
 }
 
-function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
+function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null, dadosApi = []) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`;
+    const nomeAba = `Lançamento Folha ${meses[periodo.mes - 1]}-${periodo.ano}`; // Ex: Lançamento Folha Jan-2025
 
     let sheet = ss.getSheetByName(nomeAba);
     if (!sheet) {
@@ -654,157 +667,133 @@ function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap = null) {
         sheet.clear();
     }
 
-    // MUDANÇA CRÍTICA: Buscar dados DETALHADOS (que contém o salário) em vez da listagem simples
-    const dadosCompletos = buscarDadosDetalhadosEmMassa(cpfs);
-
-    const mapDados = {};
-    dadosCompletos.forEach(c => {
-        const cpfLimpo = String(c.cpf).replace(/\D/g, '');
-        mapDados[cpfLimpo] = c;
-    });
-
-    // Fallback: Buscar dados da aba Colaboradores (caso API falhe ou esteja incompleta)
+    // Buscar nomes dos CPFs
     const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
-    const dadosPlanilha = sheetColab.getDataRange().getValues();
-
-    dadosPlanilha.forEach((row, i) => {
-        if (i < 5) return; // Pular cabeçalhos
-        const cpfLimpo = String(row[1]).replace(/\D/g, '');
-        if (!mapDados[cpfLimpo]) {
-            mapDados[cpfLimpo] = {};
-        }
-        // Preencher dados faltantes com os da planilha
-        if (!mapDados[cpfLimpo].nome_completo) mapDados[cpfLimpo].nome_completo = row[2];
-        // Só usa o da planilha se NÃO veio da API (API tem prioridade total agora)
-        if (mapDados[cpfLimpo].salario_base === undefined || mapDados[cpfLimpo].salario_base === null) {
-            mapDados[cpfLimpo].salario_base = row[5]; // Coluna F
-        }
-        if (!mapDados[cpfLimpo].cargo) mapDados[cpfLimpo].cargo = row[6];
-        if (!mapDados[cpfLimpo].departamento) mapDados[cpfLimpo].departamento = row[7];
-    });
-
-    // LINHA 1: Cabeçalhos dos planos (opcional)
-    const headerPlanos = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '8111 (AMIL 2)', '313 (AMIL 2)', '370 (AMIL ODONTO 13)', '392 (AMIL ODONTO 13)'];
-    sheet.getRange(1, 1, 1, 18).setValues([headerPlanos]);
-    sheet.getRange(1, 1, 1, 18).setFontSize(8).setFontColor('#666666');
-
-    // LINHA 2: Cabeçalhos principais
-    const headers = [
-        'NOME', 'LOCAL', 'ADMISSÃO', 'SÓCIO', 'SALÁRIO', 'NOVO SALÁRIO',
-        'CARGO', 'DEPARTAMENTO', 'CONVENIO ESCOLHIDO', 'DN', 'IDADE',
-        'FAIXA ETÁRIA', 'VL 100% AMIL', 'VL EMPRESA AMIL', 'VL FUNC. AMIL',
-        'AMIL SAÚDE DEP', 'ODONT. FUNC.', 'ODONT. DEP.'
-    ];
-
-    sheet.getRange(2, 1, 1, 18).setValues([headers]);
-    sheet.getRange(2, 1, 1, 18)
-        .setFontWeight('bold')
-        .setBackground('#4a86e8')
-        .setFontColor('white')
-        .setHorizontalAlignment('center')
-        .setVerticalAlignment('middle');
-
-    // Montar linhas de dados
-    const linhas = cpfs.map(cpf => {
-        const dados = mapDados[cpf] || {};
-
-        // Calcular idade
-        let idade = '';
-        let faixaEtaria = '';
-        if (dados.data_nascimento) {
-            const hoje = new Date();
-            const nascimento = new Date(dados.data_nascimento);
-            idade = hoje.getFullYear() - nascimento.getFullYear();
-
-            // Faixa etária
-            if (idade >= 0 && idade <= 18) faixaEtaria = '0-18';
-            else if (idade >= 19 && idade <= 23) faixaEtaria = '19-23';
-            else if (idade >= 24 && idade <= 28) faixaEtaria = '24-28';
-            else if (idade >= 29 && idade <= 33) faixaEtaria = '29-33';
-            else if (idade >= 34 && idade <= 38) faixaEtaria = '34-38';
-            else if (idade >= 39 && idade <= 43) faixaEtaria = '39-43';
-            else if (idade >= 44 && idade <= 48) faixaEtaria = '44-48';
-            else if (idade >= 49 && idade <= 53) faixaEtaria = '49-53';
-            else if (idade >= 54 && idade <= 58) faixaEtaria = '54-58';
-            else faixaEtaria = '59+';
-        }
-
-        // Datas como número serial do Excel
-        let dataAdmissaoSerial = '';
-        if (dados.data_admissao) {
-            const dataAdm = new Date(dados.data_admissao);
-            const excelEpoch = new Date(1899, 11, 30);
-            dataAdmissaoSerial = Math.floor((dataAdm - excelEpoch) / (1000 * 60 * 60 * 24));
-        }
-
-        let dataNascimentoSerial = '';
-        if (dados.data_nascimento) {
-            const dataNasc = new Date(dados.data_nascimento);
-            const excelEpoch = new Date(1899, 11, 30);
-            dataNascimentoSerial = Math.floor((dataNasc - excelEpoch) / (1000 * 60 * 60 * 24));
-        }
-
-        // Salário: Prioridade API > Planilha > 0
-        let salario = 0;
-        if (dados.salario_base !== undefined && dados.salario_base !== null) {
-            // Tentar converter se for string monetária
-            if (typeof dados.salario_base === 'string') {
-                salario = parseFloat(dados.salario_base.replace('R$', '').replace(/\./g, '').replace(',', '.').trim());
-            } else {
-                salario = parseFloat(dados.salario_base);
-            }
-        }
-
-        return [
-            dados.nome_completo || 'Não encontrado',
-            dados.local_trabalho || 'Matriz',
-            dataAdmissaoSerial,
-            '',
-            salario || 0,
-            '',
-            dados.cargo || '',
-            dados.departamento || '',
-            '-',
-            dataNascimentoSerial,
-            idade,
-            faixaEtaria,
-            0, 0, 0, 0, 0, 0
-        ];
-    });
-
-    // Inserir dados
-    if (linhas.length > 0) {
-        sheet.getRange(3, 1, linhas.length, 18).setValues(linhas);
-
-        // Larguras
-        const larguras = [200, 100, 100, 60, 100, 120, 200, 150, 150, 100, 60, 100, 100, 120, 110, 120, 110, 110];
-        larguras.forEach((largura, i) => sheet.setColumnWidth(i + 1, largura));
-
-        // Formatos
-        sheet.getRange(3, 5, linhas.length, 1).setNumberFormat('#,##0.00'); // Salário
-        sheet.getRange(3, 6, linhas.length, 1).setNumberFormat('#,##0.00');
-        sheet.getRange(3, 13, linhas.length, 6).setNumberFormat('#,##0.00');
-        sheet.getRange(3, 3, linhas.length, 1).setNumberFormat('dd/mm/yyyy');
-        sheet.getRange(3, 10, linhas.length, 1).setNumberFormat('dd/mm/yyyy');
-
-        // Bordas
-        sheet.getRange(2, 1, linhas.length + 1, 18).setBorder(
-            true, true, true, true, true, true,
-            '#000000', SpreadsheetApp.BorderStyle.SOLID
-        );
-
-        // Zebra
-        for (let i = 0; i < linhas.length; i++) {
-            if (i % 2 !== 0) {
-                sheet.getRange(3 + i, 1, 1, 18).setBackground('#f9f9f9');
-            }
+    const dadosColab = sheetColab.getDataRange().getValues(); // Cache local rápido
+    const mapNomes = {};
+    for (let i = 5; i < dadosColab.length; i++) {
+        if (dadosColab[i][1]) {
+            const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
+            mapNomes[cpfLimpo] = dadosColab[i][2];
         }
     }
 
-    sheet.setFrozenRows(2);
+    // Helper Local de Idade
+    function calcIdade(dataNasc) {
+        if (!dataNasc) return '';
+        const hoje = new Date();
+        const nasc = new Date(dataNasc);
+        let idade = hoje.getFullYear() - nasc.getFullYear();
+        const m = hoje.getMonth() - nasc.getMonth();
+        if (m < 0 || (m === 0 && hoje.getDate() < nasc.getDate())) {
+            idade--;
+        }
+        return idade;
+    }
+
+    // Cabeçalhos (LAYOUT EXATO 2025)
+    // Removidos: Extras, INSS, Vale Transporte, etc.
+    const headers = [
+        'CPF', 'Nome', 'Mês', 'Ano',
+        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
+        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
+        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
+        'Odont. Func.', 'Odont. Dep.',
+        'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
+    ];
+
+    // Montar linhas
+    const linhas = cpfs.map(cpf => {
+        const cpfLimpo = String(cpf).replace(/\D/g, '');
+        const nome = mapNomes[cpfLimpo] || 'Não encontrado';
+
+        let d = {};
+        if (dadosMap && dadosMap[cpfLimpo] && dadosMap[cpfLimpo].length > 0) d = dadosMap[cpfLimpo][0];
+
+        // Dados fresquinhos da API (Cadastro)
+        // A API retorna CPF formatado ou limpo? O filter no `buscar` limpou?
+        // buscarDadosColaboradores retorna objetos limpos filtrados.
+        // Vamos achar pelo CPF limpo.
+        const apiData = dadosApi.find(c => String(c.cpf).replace(/\D/g, '') === cpfLimpo) || {};
+
+        const formatDate = (dateStr) => {
+            if (!dateStr) return '';
+            const dt = new Date(dateStr);
+            return isNaN(dt.getTime()) ? '' : dt.toISOString().split('T')[0];
+        };
+
+        const dataNasc = apiData.data_nascimento || d.data_nascimento;
+        const idade = calcIdade(dataNasc);
+
+        // Preenchimento: Prioridade Histórico (se for edição) -> API (Cadastro) -> Default
+        // Mas se dadosMap for null (lançamento novo), é API -> Default.
+        // Se houver dadosMap, supomos que queremos ver o que estava salvo?
+        // Sim, mas o user disse "Lançamento". Geralmente é novo.
+        // Mas se ele recriar a aba de um mês já lançado?
+        // Vamos dar prioridade ao que já foi lançado (d) se existir.
+
+        return [
+            formatarCPFParaExibicao(cpf), nome, periodo.mes, periodo.ano,
+            d.local_trabalho || apiData.local_trabalho || '',
+            formatDate(d.data_admissao || apiData.data_admissao),
+            d.socio || 0,
+            parseFloat(d.salario_base || apiData.salario_base || 0),
+            d.cargo || apiData.cargo || '',
+            d.departamento || apiData.departamento || '',
+            d.convenio_escolhido || apiData.convenio_escolhido || '',
+            formatDate(dataNasc),
+            idade,
+            d.faixa_etaria || apiData.faixa_etaria || '',
+
+            parseFloat(d.vl_100_amil || apiData.vl_100_amil || 0),
+            parseFloat(d.vl_empresa_amil || apiData.vl_empresa_amil || 0),
+            parseFloat(d.vl_func_amil || apiData.vl_func_amil || 0),
+            parseFloat(d.amil_saude_dep || apiData.amil_saude_dep || 0),
+            parseFloat(d.odont_func || apiData.odont_func || 0),
+            parseFloat(d.odont_dep || apiData.odont_dep || 0),
+
+            d.status_pagamento || 'pendente',
+            d.data_pagamento ? String(d.data_pagamento).substring(0, 10) : '',
+            d.observacoes || ''
+        ];
+    });
+
+    if (linhas.length === 0) {
+        SpreadsheetApp.getUi().alert('⚠️ Erro', 'Nenhum dado gerado para os CPFs selecionados.', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    // Renderizar Header
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+        .setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
+
+    // Renderizar Dados (Check bounds)
+    if (linhas.length > 0) {
+        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    }
+
+    // Formatação
+    if (sheet.getMaxColumns() >= 2) sheet.setColumnWidth(2, 200); // Nome
+    if (sheet.getMaxColumns() >= 5) sheet.setColumnWidth(5, 100); // Local
+    if (sheet.getMaxColumns() >= 10) sheet.setColumnWidth(10, 150); // Depto
+
+    // Validação Status (Coluna 21 -> index 20 (0-based) -> Col 21 = U)
+    const colStatus = 21;
+    const ruleStatus = SpreadsheetApp.newDataValidation()
+        .requireValueInList(['pendente', 'pago'], true)
+        .setAllowInvalid(false)
+        .build();
+
+    if (linhas.length > 0 && sheet.getMaxColumns() >= colStatus) {
+        sheet.getRange(2, colStatus, linhas.length, 1).setDataValidation(ruleStatus);
+    }
+
+    // Travar Colunas CPF/Nome
+    sheet.setFrozenColumns(2);
+
     ss.setActiveSheet(sheet);
     SpreadsheetApp.getUi().alert('✅ Planilha Criada!',
-        `Planilha "${nomeAba}" criada conforme template.\\n\\nPreencha os valores e quando terminar, vá no menu "Lançamentos" > "Enviar Folha para Sistema".`,
+        `Preencha os valores na aba "${nomeAba}".\n\nQuando terminar, vá no menu "Lançamentos" > "Enviar Folha para Sistema".`,
         SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
@@ -812,82 +801,106 @@ function enviarFolhaParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Folha')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha ..." para enviar os dados.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    // Aceita: "Lançamento Folha", "V. 2025-01-01 - Folha", "V. 2025-01-01 - Folha Pagamento"
+    const isFolha = nomeAba.toLowerCase().includes('folha');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isFolha || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Folha" ou "Histórico Folha" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
     const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar Envio', 'Deseja enviar os dados desta planilha para o sistema?', ui.ButtonSet.YES_NO);
+    const resp = ui.alert('Confirmar Envio', 'Deseja enviar os dados desta planilha para o sistema? Isso atualizará ou criará os registros de folha.', ui.ButtonSet.YES_NO);
     if (resp == ui.Button.NO) return;
 
     const data = sheet.getDataRange().getValues();
-    if (data.length < 3) {
+    // Headers na linha 1. Dados começam na linha 2.
+    if (data.length < 2) {
         ui.alert('⚠️ Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK);
         return;
     }
 
-    // Extrair período
-    const match = nomeAba.match(/([A-Z][a-z]{2})-(\\d{4})/);
-    let mes = 0, ano = 0;
-    if (match) {
-        const meses = {
-            'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6,
-            'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12
-        };
-        mes = meses[match[1]];
-        ano = parseInt(match[2]);
+    const headers = data[0].map(h => String(h).trim().toLowerCase());
+
+    // Helper para buscar valor dinamicamente
+    function getVal(row, keywords) {
+        const keys = Array.isArray(keywords) ? keywords : [keywords];
+        let colIndex = -1;
+
+        // 1. Tenta match exato ou parcial
+        for (const k of keys) {
+            colIndex = headers.findIndex(h => h === k || h.includes(k));
+            if (colIndex > -1) break;
+        }
+
+        // 2. Tenta normalizar (remover acentos)
+        if (colIndex === -1) {
+            const normalizedHeaders = headers.map(h => h.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+            for (const k of keys) {
+                const kNorm = k.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                colIndex = normalizedHeaders.findIndex(h => h === kNorm || h.includes(kNorm));
+                if (colIndex > -1) break;
+            }
+        }
+
+        if (colIndex === -1) return null;
+        return row[colIndex];
+    }
+
+    // Helper para Data
+    function getDateVal(row, keywords) {
+        const val = getVal(row, keywords);
+        if (!val) return null;
+        if (val instanceof Date) return val.toISOString().split('T')[0];
+        // Tenta parsear string DD/MM/YYYY se necessário, ou retorna string crua se formato YYYY-MM-DD
+        return String(val).substring(0, 10);
     }
 
     const folhas = [];
-
-    for (let i = 2; i < data.length; i++) {
+    for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        const nome = String(row[0]);
-        if (!nome || nome === 'Não encontrado') continue;
 
-        // Converter datas
-        let dataAdmissao = null;
-        if (row[2] && typeof row[2] === 'number') {
-            const excelEpoch = new Date(1899, 11, 30);
-            const dataAdm = new Date(excelEpoch.getTime() + row[2] * 24 * 60 * 60 * 1000);
-            dataAdmissao = Utilities.formatDate(dataAdm, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
-
-        let dataNascimento = null;
-        if (row[9] && typeof row[9] === 'number') {
-            const excelEpoch = new Date(1899, 11, 30);
-            const dataNasc = new Date(excelEpoch.getTime() + row[9] * 24 * 60 * 60 * 1000);
-            dataNascimento = Utilities.formatDate(dataNasc, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-        }
+        const cpfRaw = getVal(row, 'cpf');
+        if (!cpfRaw) continue;
 
         folhas.push({
-            nome_colaborador: nome,
-            local_trabalho: row[1] || '',
-            data_admissao: dataAdmissao,
-            socio: row[3] || '',
-            salario_base: row[4] || 0,
-            novo_salario: row[5] || null,
-            cargo: row[6] || '',
-            departamento: row[7] || '',
-            convenio_escolhido: row[8] || '',
-            data_nascimento: dataNascimento,
-            idade: row[10] || null,
-            faixa_etaria: row[11] || '',
-            vl_100_amil: row[12] || 0,
-            vl_empresa_amil: row[13] || 0,
-            vl_func_amil: row[14] || 0,
-            amil_saude_dep: row[15] || 0,
-            odont_func: row[16] || 0,
-            odont_dep: row[17] || 0,
-            mes_referencia: mes,
-            ano_referencia: ano
-        });
-    }
+            cpf: String(cpfRaw).replace(/\D/g, ''),
+            mes_referencia: getVal(row, ['mês', 'mes', 'mes_referencia']) || 0,
+            ano_referencia: getVal(row, ['ano', 'ano_referencia']) || 0,
 
-    if (folhas.length === 0) {
-        ui.alert('⚠️ Nenhum dado válido', 'Não há dados válidos para enviar.', ui.ButtonSet.OK);
-        return;
+            // Novos Campos 2025
+            local_trabalho: getVal(row, ['local', 'local_trabalho']),
+            data_admissao: getDateVal(row, ['admissão', 'admissao', 'data_admissao']),
+            socio: getVal(row, 'sócio') || 0,
+            novo_salario: getVal(row, ['novo salário', 'novo_salario']) || 0,
+            cargo: getVal(row, 'cargo'),
+            departamento: getVal(row, ['departamento', 'depto']),
+            convenio_escolhido: getVal(row, ['convênio', 'convenio']),
+            data_nascimento: getDateVal(row, ['dn', 'nascimento', 'data_nascimento']),
+            idade: getVal(row, 'idade') || 0,
+            faixa_etaria: getVal(row, ['faixa', 'faixa etária', 'faixa_etaria']),
+
+            vl_100_amil: getVal(row, ['vl 100% amil', 'vl_100_amil']) || 0,
+            vl_empresa_amil: getVal(row, ['vl empresa amil', 'vl_empresa_amil']) || 0,
+            vl_func_amil: getVal(row, ['vl func. amil', 'vl_func_amil']) || 0,
+            amil_saude_dep: getVal(row, ['amil saúde dep', 'amil_saude_dep']) || 0,
+
+            odont_func: getVal(row, ['odont. func.', 'odont_func']) || 0,
+            odont_dep: getVal(row, ['odont. dep.', 'odont_dep']) || 0,
+
+            // Campos Legados Removidos da Interface de Lançamento
+            // Backend ainda suporta se vierem, mas script não envia mais se não tiver na planilha
+            // Se necessário manter compatibilidade, enviamos zero
+            // (Para não quebrar validadores de schema estrito no backend se houver)
+            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
+
+            status_pagamento: String(getVal(row, ['status', 'status_pagamento']) || 'pendente').toLowerCase(),
+            data_pagamento: getDateVal(row, ['data pagto', 'data pagamento', 'data_pagamento']),
+            observacoes: getVal(row, ['obs', 'observacoes', 'observações']) || ''
+        });
     }
 
     try {
@@ -904,6 +917,12 @@ function enviarFolhaParaAPI() {
 
         if (resultado.success) {
             ui.alert('✅ Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
+
+            // Perguntar se deseja excluir (sempre, seja Lançamento ou Snapshot)
+            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba para manter a planilha organizada?', ui.ButtonSet.YES_NO);
+            if (respDel == ui.Button.YES) {
+                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+            }
         } else {
             throw new Error(resultado.error);
         }
@@ -913,45 +932,8 @@ function enviarFolhaParaAPI() {
 }
 
 // =====================================================
-// NOVA FUNÇÃO DE BUSCA DETALHADA (PARALELA)
+// UTILITÁRIOS DE API
 // =====================================================
-function buscarDadosDetalhadosEmMassa(cpfs) {
-    if (!cpfs || cpfs.length === 0) return [];
-
-    // Limpar CPFs
-    const cpfsLimpos = cpfs.map(c => String(c).replace(/\D/g, ''));
-
-    // Criar requests para o endpoint de DETALHE (que traz o salário correto)
-    const requests = cpfsLimpos.map(cpf => ({
-        url: CONFIG.API_URL + '/colaboradores/' + cpf,
-        method: 'get',
-        muteHttpExceptions: true
-    }));
-
-    try {
-        // Fetch paralelo (muito mais rápido que loop)
-        const responses = UrlFetchApp.fetchAll(requests);
-
-        const resultados = responses.map(res => {
-            try {
-                const json = JSON.parse(res.getContentText());
-                // O endpoint de detalhe retorna { success: true, data: { ... } }
-                if (json.success && json.data) {
-                    return json.data;
-                }
-                return null;
-            } catch (e) {
-                return null;
-            }
-        }).filter(item => item !== null);
-
-        return resultados;
-    } catch (e) {
-        Logger.log('Erro no fetchAll: ' + e);
-        return [];
-    }
-}
-
 
 function buscarDadosColaboradores(cpfs) {
     if (!cpfs || cpfs.length === 0) return [];
@@ -968,8 +950,8 @@ function buscarDadosColaboradores(cpfs) {
         const res = JSON.parse(response.getContentText());
 
         if (res.success) {
-            const cpfsLimpos = cpfs.map(c => String(c).replace(/\D/g, ''));
-            return res.colaboradores.filter(c => cpfsLimpos.includes(String(c.cpf).replace(/\D/g, '')));
+            // Retorna todos os encontrados (o filtro final é feito na função de criar planilha)
+            return res.colaboradores || [];
         } else {
             return [];
         }
@@ -1084,32 +1066,55 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
         });
     }
 
-    // Prioridade 2: Dados da Aba (Fallback se API falhar)
+    // Prioridade 2: Dados do Snapshot (dadosMap) - Para garantir que snapshots tenham cidade e nome
+    if (dadosMap) {
+        for (const [cpf, itens] of Object.entries(dadosMap)) {
+            // dadosMap é um MAP de CPF -> ARRAY de itens
+            // Pega o primeiro item para extrair metadados do colab
+            const d = itens[0];
+            if (d && !mapDados[cpf]) {
+                mapDados[cpf] = {
+                    nome: d.nome || d.nome_colaborador || d.nome_completo || 'Sem Nome',
+                    cidade: d.cidade || d.local_trabalho || '-'
+                };
+            }
+        }
+    }
+
+    // Prioridade 3: Dados da Aba Colaboradores (Fallback final)
     const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
     const dadosColab = sheetColab.getDataRange().getValues();
     for (let i = 5; i < dadosColab.length; i++) {
         const cpfLimpo = String(dadosColab[i][1]).replace(/\D/g, '');
-        if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API
+        if (!mapDados[cpfLimpo]) { // Só preenche se não veio da API nem do Snapshot
             mapDados[cpfLimpo] = {
                 nome: dadosColab[i][2],
-                cidade: dadosColab[i][4] || '-'
+                cidade: dadosColab[i][5] || '-' // Index 5 = Cidade (Atualizado)
             };
         }
     }
 
     // Gerar Linhas
     const linhas = cpfs.map((cpf, index) => {
-        const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '' };
+        const d = mapDados[cpf] || { nome: 'Não encontrado', cidade: '-' };
         const seq = String(index + 1).padStart(4, '0');
 
         let valAlim = sheet.getRange('C10').getValue();
         let valTransp = sheet.getRange('C6').getValue();
 
         if (dadosMap && dadosMap[cpf]) {
-            const alim = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_alimentacao');
-            const transp = dadosMap[cpf].find(x => x.tipo_beneficio === 'vale_transporte');
-            valAlim = alim ? alim.valor : 0;
-            valTransp = transp ? transp.valor : 0;
+            // Snapshot pode ser Lista (tipo_beneficio) ou já processado flat
+            const itens = dadosMap[cpf];
+
+            // Tenta achar itens por tipo
+            const alim = itens.find(x => x.tipo_beneficio === 'vale_alimentacao' || x.vale_alimentacao);
+            const transp = itens.find(x => x.tipo_beneficio === 'vale_transporte' || x.vale_transporte);
+
+            if (alim) valAlim = alim.valor || alim.vale_alimentacao || 0;
+            if (transp) valTransp = transp.valor || transp.vale_transporte || 0;
+
+            // Se for um snapshot "flat" que tem tudo num objeto só (ex: restored from folha?)
+            // Mas beneficios geralmente é lista.
         }
 
         return [
@@ -1146,81 +1151,140 @@ function criarPlanilhaBeneficiosCaju(cpfs, periodo, dadosCompletos, dadosMap = n
 function enviarBeneficiosParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
+    const ui = SpreadsheetApp.getUi();
 
-    if (!nomeAba.includes('Lançamento Benefícios')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Benefícios ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isBeneficios = nomeAba.toLowerCase().includes('benef');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isBeneficios || (!isSnapshot && !isLancamento)) {
+        ui.alert('⚠️ Aba Incorreta', 'Esta não é uma aba de Benefícios (Lançamento ou Histórico).', ui.ButtonSet.OK);
         return;
     }
 
-    const ui = SpreadsheetApp.getUi();
-    const resp = ui.alert('Confirmar', 'Enviar benefícios para o sistema?', ui.ButtonSet.YES_NO);
+    // RECUPERAR METADADOS (se for snapshot restaurado)
+    let metadados = null;
+    try {
+        const metaStr = sheet.getRange('A1').getValue();
+        if (typeof metaStr === 'string' && metaStr.startsWith('{')) {
+            metadados = JSON.parse(metaStr);
+        }
+    } catch (e) { }
+
+    // Se não tem metadados (Lançamento ou Snapshot antigo), extrair do nome
+    if (!metadados) {
+        const match = nomeAba.match(/V\.\s(\d{4})-(\d{2})-\d{2}/) || nomeAba.match(/(\d{{1,2})[-/](\d{4})/);
+        // Tenta pegar periodo, mas sem ID de snapshot
+        // Lógica de fallback simples
+        // Para Lançamento Benefícios Jan-2026:
+        const matchLanc = nomeAba.match(/([a-zA-Z]{3})-(\d{4})/);
+        if (matchLanc) {
+            const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
+            metadados = { mes_referencia: meses[matchLanc[1]], ano_referencia: parseInt(matchLanc[2]), tipo: 'beneficios' };
+        } else if (nomeAba.match(/V\./)) {
+            // Tentar extrair data da string V. 2025-01-01
+            const matchV = nomeAba.match(/(\d{4})-(\d{2})-\d{2}/);
+            if (matchV) metadados = { mes_referencia: parseInt(matchV[2]), ano_referencia: parseInt(matchV[1]), tipo: 'beneficios' };
+        }
+    }
+
+    if (!metadados || !metadados.mes_referencia) {
+        // Ultima tentativa: Pedir ao usuário
+        // Mas vamos abortar por segurança
+        ui.alert('⚠️ Erro de Competência', 'Não foi possível identificar Mês/Ano. Verifique o nome da aba.', ui.ButtonSet.OK);
+        return;
+    }
+
+    const resp = ui.alert('Confirmar',
+        `Enviar benefícios de ${metadados.mes_referencia}/${metadados.ano_referencia}?\n\n` +
+        (metadados.snapshot_id ? `⚠️ ATUALIZANDO snapshot existente (ID: ...${metadados.snapshot_id.substring(0, 6)})` : 'Novo lançamento será criado.'),
+        ui.ButtonSet.YES_NO);
     if (resp == ui.Button.NO) return;
 
+    // DETECTAR LAYOUT (SEMPRE MATRIZ AGORA, POIS O RESTAURADOR CONVERTEU)
+    // Headers na linha 12, Dados na 13
     const startRow = 13;
     const lastRow = sheet.getLastRow();
-    if (lastRow < startRow) return;
+    if (lastRow < startRow) {
+        ui.alert('⚠️ Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK);
+        return;
+    }
 
-    // Lendo colunas A até F (1 a 6)
+    // Leitura fixa das colunas 1 a 6 (#, Nome, Cidade, Ferias, Alim, Transp)
     const data = sheet.getRange(startRow, 1, lastRow - startRow + 1, 6).getValues();
     const beneficios = [];
 
-    // Map Name -> CPF (Recuperação inversa, já que CPF não está na linha visualmente)
+    // MAP Nome → CPF (Necessário pois o layout restaurado só mostra Nome)
+    // Robustez: Vamos pegar da aba Colaboradores
     const sheetColab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
     const dadosColab = sheetColab.getDataRange().getValues();
     const mapNomeParaCPF = {};
     for (let i = 5; i < dadosColab.length; i++) {
         const nome = String(dadosColab[i][2]).trim().toUpperCase();
-        const cpf = String(dadosColab[i][1]).replace(/\D/g, '');
-        mapNomeParaCPF[nome] = cpf;
+        const cpfRaw = String(dadosColab[i][1]).replace(/\D/g, '');
+        mapNomeParaCPF[nome] = cpfRaw;
     }
 
-    const match = nomeAba.match(/([a-zA-Z]{3})-(\d{4})/);
-    let mes = 0, ano = 0;
-    if (match) {
-        const meses = { 'Jan': 1, 'Fev': 2, 'Mar': 3, 'Abr': 4, 'Mai': 5, 'Jun': 6, 'Jul': 7, 'Ago': 8, 'Set': 9, 'Out': 10, 'Nov': 11, 'Dez': 12 };
-        mes = meses[match[1]];
-        ano = parseInt(match[2]);
-    }
+    let duplicatas = 0;
+    const chavesUnicas = new Set();
 
-    for (let i = 0; i < data.length; i++) {
-        const row = data[i];
+    data.forEach(row => {
         const nome = String(row[1]).trim().toUpperCase();
-        if (!nome) continue;
+        let cpf = mapNomeParaCPF[nome];
 
-        const cpf = mapNomeParaCPF[nome];
-        if (!cpf) continue;
+        // As vezes o snapshot pode ter o CPF na coluna oculta ou seq? Nao, no layout restaurado é #.
+        // Se não achar, loga e pula
+        if (!cpf) return;
 
-        // Col 4 (Index 4) = Alimentação (E)
-        if (row[4] && typeof row[4] === 'number' && row[4] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_alimentacao', valor: row[4], quantidade: 1, valor_total: row[4], status: 'ativo' });
+        const valAlim = parseFloat(row[4]);
+        const valTransp = parseFloat(row[5]);
+
+        // Alimentação
+        if (valAlim > 0) {
+            const key = `${cpf}-vale_alimentacao`;
+            if (!chavesUnicas.has(key)) {
+                beneficios.push({
+                    cpf, mes_referencia: metadados.mes_referencia, ano_referencia: metadados.ano_referencia,
+                    tipo_beneficio: 'vale_alimentacao', valor: valAlim, quantidade: 1, valor_total: valAlim, status: 'ativo'
+                });
+                chavesUnicas.add(key);
+            }
         }
 
-        // Col 5 (Index 5) = Transporte (F)
-        if (row[5] && typeof row[5] === 'number' && row[5] > 0) {
-            beneficios.push({ cpf, mes_referencia: mes, ano_referencia: ano, tipo_beneficio: 'vale_transporte', valor: row[5], quantidade: 1, valor_total: row[5], status: 'ativo' });
+        // Transporte
+        if (valTransp > 0) {
+            const key = `${cpf}-vale_transporte`;
+            if (!chavesUnicas.has(key)) {
+                beneficios.push({
+                    cpf, mes_referencia: metadados.mes_referencia, ano_referencia: metadados.ano_referencia,
+                    tipo_beneficio: 'vale_transporte', valor: valTransp, quantidade: 1, valor_total: valTransp, status: 'ativo'
+                });
+                chavesUnicas.add(key);
+            }
         }
-    }
+    });
 
     if (beneficios.length === 0) {
-        ui.alert('⚠️ Nenhum benefício para enviar', 'Verifique se há valores preenchidos em Alimentação ou Transporte.', ui.ButtonSet.OK);
+        ui.alert('⚠️ Nada a enviar', 'Nenhum valor > 0 encontrado nos colaboradores identificados.', ui.ButtonSet.OK);
         return;
     }
 
+    // ENVIAR PARA API
     try {
         const url = CONFIG.API_URL + '/beneficios/batch';
         const options = {
             'method': 'post', 'contentType': 'application/json',
-            'payload': JSON.stringify({ beneficios: beneficios }), 'muteHttpExceptions': true
+            'payload': JSON.stringify({ beneficios }), 'muteHttpExceptions': true
         };
         const response = UrlFetchApp.fetch(url, options);
         const res = JSON.parse(response.getContentText());
 
         if (res.success) {
             ui.alert('✅ Sucesso!', res.message, ui.ButtonSet.OK);
-            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
-            if (respDel == ui.Button.YES) {
-                try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
-            }
+            // Se for lançamento (não snapshot), oferece deletar
+            const respDel = ui.alert('Limpeza', 'Deseja excluir esta aba?', ui.ButtonSet.YES_NO);
+            if (respDel == ui.Button.YES) try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
         } else {
             throw new Error(res.error);
         }
@@ -1346,8 +1410,13 @@ function enviarVariavelParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Variável')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Variável ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isVariavel = nomeAba.toLowerCase().includes('vari') || nomeAba.toLowerCase().includes('comis');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isVariavel || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Variável" ou "Histórico Variável".', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -1547,8 +1616,13 @@ function enviarApontamentosParaAPI() {
     const sheet = SpreadsheetApp.getActiveSheet();
     const nomeAba = sheet.getName();
 
-    if (!nomeAba.includes('Lançamento Apontamentos')) {
-        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Apontamentos ..." para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+    // 1. DETECÇÃO ROBUSTA (LANÇAMENTO OU SNAPSHOT)
+    const isApontamentos = nomeAba.toLowerCase().includes('apont') || nomeAba.toLowerCase().includes('ponto');
+    const isSnapshot = nomeAba.startsWith('V.');
+    const isLancamento = nomeAba.includes('Lançamento');
+
+    if (!isApontamentos || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('⚠️ Aba Incorreta', 'Você deve estar na aba "Lançamento Apontamentos" ou "Histórico Apontamentos" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
         return;
     }
 
@@ -1931,16 +2005,16 @@ function editarSelecionados() {
         if (resultado.success) {
             // Tenta obter os dados de várias formas possíveis
             var dadosColaborador = resultado.data || resultado.colaborador || resultado.body;
-            
+
             if (!dadosColaborador && resultado.nome_completo) {
                 dadosColaborador = resultado;
             }
 
             if (!dadosColaborador) {
-                 ui.alert('Erro', 'Dados do colaborador não encontrados na resposta da API.\nVerifique os logs.', ui.ButtonSet.OK);
-                 return;
+                ui.alert('Erro', 'Dados do colaborador não encontrados na resposta da API.\nVerifique os logs.', ui.ButtonSet.OK);
+                return;
             }
-            
+
             mostrarModalEdicao(dadosColaborador);
         } else {
             throw new Error(resultado.error || 'Erro na API');
@@ -1949,8 +2023,6 @@ function editarSelecionados() {
         ui.alert('❌ Erro', 'Erro ao buscar colaborador: ' + erro.message, ui.ButtonSet.OK);
     }
 }
-
-// =====================================================
 
 // =====================================================
 // MODAL COM EMOJIS E DESIGN PREMIUM
@@ -1982,7 +2054,7 @@ function mostrarModalEdicao(colaborador) {
     }
 
     // Tratamento robusto do Salário
-    var salario = colaborador.salario_base;
+    var salario = colaborador.salario_base || colaborador.salario; // Aceita ambos
     // Se vier nulo ou undefined
     if (salario === undefined || salario === null) salario = 0;
 
@@ -2003,7 +2075,26 @@ function mostrarModalEdicao(colaborador) {
     // Formata para exibição (pt-BR)
     salario = salario.toFixed(2).replace('.', ',');
 
-    const html = HtmlService.createHtmlOutput(`
+    // FIX EDGE PERMISSION_DENIED: Pre-carrega TODOS OS DADOS no servidor antes de montar o modal.
+    // Elimina google.script.run para o carregamento inicial.
+    var colabId = colaborador.id || colaborador.colaborador_id || colaborador.cpf;
+    var planosList = null, pUsuario = null, depsRes = null;
+
+    // 1. Planos Gerais
+    try { planosList = listarPlanosAPI(); } catch (e) { planosList = { success: false, error: e.message }; }
+    var pTag = '<script type="application/json" id="srvplanos">' + JSON.stringify(planosList).replace(/<\//g, '\\u003c/') + '<\/script>';
+
+    // 2. Planos do Colaborador
+    try { pUsuario = buscarPlanosColaboradorAPI(colabId); } catch (e) { pUsuario = { success: false, error: e.message }; }
+    var puTag = '<script type="application/json" id="srvplanosuser">' + JSON.stringify(pUsuario).replace(/<\//g, '\\u003c/') + '<\/script>';
+
+    // 3. Dependentes do Colaborador
+    try { depsRes = listarDependentesAPI(colabId); } catch (e) { depsRes = { success: false, error: e.message }; }
+    var dTag = '<script type="application/json" id="srvdeps">' + JSON.stringify(depsRes).replace(/<\//g, '\\u003c/') + '<\/script>';
+
+    var dataTags = pTag + puTag + dTag;
+
+    const html = HtmlService.createHtmlOutput(dataTags + `
     <style>
       body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20px; background-color: #f8f9fa; }
       h2 { color: #202124; border-bottom: 2px solid #4285f4; padding-bottom: 10px; margin-top: 0; }
@@ -2143,7 +2234,8 @@ function mostrarModalEdicao(colaborador) {
         <div id="lista_dependentes" style="margin-bottom: 15px; font-size: 13px; color: #666;">🔄 Carregando lista...</div>
         
         <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px dashed #ccc;">
-          <label style="margin-top:0; color:#1a73e8;">➕ Adicionar Dependente:</label>
+          <input type="hidden" id="dep_id">
+          <label style="margin-top:0; color:#1a73e8;" id="titulo_dep">➕ Adicionar Dependente:</label>
           <div class="row">
             <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex: 2;">
             <input type="text" id="dep_cpf" placeholder="CPF" style="flex: 1;">
@@ -2157,7 +2249,10 @@ function mostrarModalEdicao(colaborador) {
               <option value="Pai/Mae">Pai/Mãe</option>
             </select>
             <input type="text" id="dep_matricula" placeholder="Matrícula (Opcional)" style="flex: 1;">
-            <button type="button" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
+            <div style="display:flex; gap:5px;">
+                <button type="button" id="btn_salvar_dep" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin: 5px 0 0 0; padding: 8px 15px;">Adicionar</button>
+                <button type="button" id="btn_cancelar_dep" onclick="cancelarEdicaoDependente()" class="btn btn-secondary" style="margin: 5px 0 0 0; padding: 8px 15px; display:none;">Cancelar</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2171,20 +2266,21 @@ function mostrarModalEdicao(colaborador) {
     <div id="mensagem" style="margin-top: 20px; padding: 15px; display: none; border-radius: 6px;"></div>
     
     <script>
-      // Formata moeda sem Regex Literal para evitar erros
+      // Formata moeda - Versao Segura (Sem backslash hell)
       function formatarMoeda(el) {
         var v = el.value;
-        v = v.replace(new RegExp('[^0-9]', 'g'), ''); // Remove nao numeros
+        v = v.replace(/[^0-9]/g, ''); // Apenas numeros
         v = (v/100).toFixed(2) + '';
         v = v.replace('.', ',');
-        // Adiciona pontos de milhar
-        v = v.replace(new RegExp('(\\d)(\\d{3})(\\,)', 'g'), '$1.$2$3');
+        // Adiciona pontos de milhar: busca grupos de 3 digitos
+        // Usando loop simples ou regex literal segura
+        v = v.replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1.');
         el.value = v;
       }
 
       document.getElementById('telefone').addEventListener('input', function(e) {
         var v = e.target.value;
-        v = v.replace(new RegExp('[^0-9]', 'g'), '');
+        v = v.replace(/[^0-9]/g, '');
         if (v.length > 11) v = v.substring(0, 11);
         e.target.value = v;
       });
@@ -2193,7 +2289,10 @@ function mostrarModalEdicao(colaborador) {
         e.preventDefault();
         
         var salarioStr = document.getElementById('salario_base').value;
-        var salarioLimpo = salarioStr.replace(new RegExp('\\.', 'g'), '').replace(',', '.');
+        
+        // LIMPEZA SEGURA: Remove tudo que nao for numero ou virgula
+        // Ex: "R$ 1.500,00" -> "1500,00"
+        var salarioLimpo = salarioStr.replace(/[^0-9,]/g, '').replace(',', '.');
         var salarioNum = parseFloat(salarioLimpo);
         
         var dados = {
@@ -2281,19 +2380,50 @@ function mostrarModalEdicao(colaborador) {
         div.style.border = '1px solid ' + ((tipo === 'success') ? '#c3e6cb' : (tipo === 'error' ? '#f5c6cb' : '#bee5eb'));
       }
       
-      window.onload = function() {
-          carregarListasPlanos(); 
-      };
-
-      function carregarListasPlanos() {
-          google.script.run.withSuccessHandler(function(res) {
-              if (res.success) {
+      // FIX EDGE: Planos pre-carregados pelo servidor — sem google.script.run.
+      // Fonte: <script type="application/json" id="srvplanos"> injetado pelo GAS.
+      // Fallback para google.script.run caso o elemento nao exista (compatibilidade).
+      document.addEventListener('DOMContentLoaded', function() {
+          var el = document.getElementById('srvplanos');
+          if (el) {
+              var res = JSON.parse(el.textContent);
+              console.log('✅ Planos carregados pelo servidor (sem google.script.run):', res);
+              if (res && res.success) {
                   popularSelects(res.data);
                   carregarPlanosDoUsuario();
               } else {
-                  alert('Erro ao carregar planos: ' + res.error);
+                  console.warn('Servidor retornou erro; tentando via google.script.run como fallback...');
+                  _carregarPlanosFallback();
               }
-          }).listarPlanosAPI();
+          } else {
+              _carregarPlanosFallback();
+          }
+      });
+
+      // Fallback: usa google.script.run se a pre-carga falhar
+      function _carregarPlanosFallback() {
+          console.log('🔵 Iniciando fallback google.script.run para planos...');
+          var _t = setTimeout(function() {
+              var s = document.getElementById('plano_saude');
+              var o = document.getElementById('plano_odonto');
+              if (s) s.innerHTML = '<option value="">⚠️ Erro ao carregar. Tente reabrir.</option>';
+              if (o) o.innerHTML = '<option value="">⚠️ Erro ao carregar. Tente reabrir.</option>';
+          }, 12000);
+          google.script.run
+              .withSuccessHandler(function(res) {
+                  clearTimeout(_t);
+                  if (res && res.success) { popularSelects(res.data); carregarPlanosDoUsuario(); }
+                  else { console.error('Fallback falhou:', res); }
+              })
+              .withFailureHandler(function(err) {
+                  clearTimeout(_t);
+                  console.error('🔴 Falha fallback (listarPlanosAPI):', err);
+                  var s = document.getElementById('plano_saude');
+                  var o = document.getElementById('plano_odonto');
+                  if (s) s.innerHTML = '<option value="">❌ ' + (err.message||err) + '</option>';
+                  if (o) o.innerHTML = '<option value="">❌ Tente reabrir o modal</option>';
+              })
+              .listarPlanosAPI();
       }
 
       function popularSelects(planos) {
@@ -2314,35 +2444,88 @@ function mostrarModalEdicao(colaborador) {
           });
       }
 
+      // FIX B1c: Adicionado withFailureHandler para prevenir falha silenciosa no Edge
       function carregarPlanosDoUsuario() {
           var id = document.getElementById('colaborador_id').value;
-          google.script.run.withSuccessHandler(function(res) {
-              if (res.success && res.data) {
-                  res.data.forEach(function(pu) {
-                      if (pu.plano && pu.plano.tipo === 'SAUDE') {
-                          document.getElementById('plano_saude').value = pu.plano_id;
-                          if (pu.matricula) document.getElementById('matricula_saude').value = pu.matricula;
-                      }
-                      if (pu.plano && pu.plano.tipo === 'ODONTO') {
-                          document.getElementById('plano_odonto').value = pu.plano_id;
-                      }
-                  });
-              }
-          }).buscarPlanosColaboradorAPI(id);
+          console.log('Carregando planos para colaborador ID:', id);
+
+          var el = document.getElementById('srvplanosuser');
+          if (el) {
+              var res = JSON.parse(el.textContent);
+              console.log('✅ Planos do Usuario carregados pelo servidor:', res);
+              _processarPlanosUsuario(res);
+          } else {
+              _carregarPlanosUsuarioFallback(id);
+          }
           carregarDependentesUI(id);
       }
 
+      function _processarPlanosUsuario(res) {
+          if (res && res.success && res.data) {
+              res.data.forEach(function(pu) {
+                  if (!pu.plano) return;
+                  var tipo = (pu.plano.tipo || '').toUpperCase();
+                  if (tipo === 'SAUDE') {
+                      var elSaude = document.getElementById('plano_saude');
+                      elSaude.value = String(pu.plano_id);
+                      var mat = pu.matricula || pu.carteirinha || pu.numero_carteirinha;
+                      if (mat) document.getElementById('matricula_saude').value = mat;
+                  }
+                  if (tipo === 'ODONTO') {
+                      var elOdonto = document.getElementById('plano_odonto');
+                      elOdonto.value = pu.plano_id;
+                      if (elOdonto.value != pu.plano_id) elOdonto.value = String(pu.plano_id);
+                  }
+              });
+          } else {
+              console.warn('Nenhum plano (usuario) retornado ou erro:', res);
+          }
+      }
+
+      function _carregarPlanosUsuarioFallback(id) {
+          var _t = setTimeout(function() { console.warn('⏰ Timeout usuario planos (12s).'); }, 12000);
+          google.script.run
+              .withSuccessHandler(function(res) { clearTimeout(_t); _processarPlanosUsuario(res); })
+              .withFailureHandler(function(err) { clearTimeout(_t); console.error('🔴 Falha Edge API planosUsu:', err); })
+              .buscarPlanosColaboradorAPI(id);
+      }
+
+      // FIX B1b: Alterado para carregar via server-script tag para Edge
       function carregarDependentesUI(colabId) {
           var div = document.getElementById('lista_dependentes');
           div.innerHTML = '🔄 Carregando...';
-          google.script.run.withSuccessHandler(function(res) {
-              if (res.success) {
-                  renderizarDependentes(res.data);
-              } else {
-                  div.innerHTML = '❌ Erro ao carregar dependentes.';
-              }
-          }).listarDependentesAPI(colabId);
+
+          var el = document.getElementById('srvdeps');
+          if (el) {
+              var res = JSON.parse(el.textContent);
+              console.log('✅ Dependentes carregados pelo servidor:', res);
+              if (res && res.success) renderizarDependentes(res.data);
+              else div.innerHTML = '❌ Erro dependentes: ' + (res ? res.error : 'invalido');
+              
+              // OBRIGATORIO: Se for chamado novamente (ex: apos adicioar dep), bate na API
+              el.parentNode.removeChild(el);
+          } else {
+              _carregarDependentesFallback(colabId);
+          }
       }
+
+      function _carregarDependentesFallback(colabId) {
+          var div = document.getElementById('lista_dependentes');
+          var _t = setTimeout(function() { div.innerHTML = '<i style="color:#d93025;">⚠️ Timeout (12s). Tente reabrir.</i>'; }, 12000);
+          google.script.run
+              .withSuccessHandler(function(res) {
+                  clearTimeout(_t);
+                  if (res && res.success) renderizarDependentes(res.data);
+                  else div.innerHTML = '❌ Erro dependentes: ' + (res ? res.error : 'invalido');
+              })
+              .withFailureHandler(function(err) {
+                  clearTimeout(_t);
+                  console.error('🔴 Falha dependentes Edge:', err);
+                  div.innerHTML = '❌ Falha comunicacao (F12).';
+              })
+              .listarDependentesAPI(colabId);
+      }
+      // ... (previous functions) ...
 
       function renderizarDependentes(lista) {
           var div = document.getElementById('lista_dependentes');
@@ -2352,10 +2535,14 @@ function mostrarModalEdicao(colaborador) {
           }
           var html = '<table style="width:100%; border-collapse: collapse;">';
           lista.forEach(function(d) {
+              // Prepare params safely for onclick
+              var dadosSafe = JSON.stringify(d).replace(/"/g, '&quot;');
+              
               html += '<tr style="border-bottom: 1px solid #eee;">' +
                       '<td style="padding: 8px;">' + d.nome + '</td>' +
                       '<td style="padding: 8px; color: #666;">' + d.parentesco + '</td>' +
                       '<td style="text-align:right; padding: 8px;">' +
+                      '<span style="cursor:pointer; color:#1a73e8; font-weight:bold; margin-right:10px;" onclick="prepararEdicaoDependente(' + dadosSafe + ')">✏️ Editar</span>' +
                       '<span style="cursor:pointer; color:#d93025; font-weight:bold;" onclick="removerDependenteUI(\\'' + d.id + '\\')">🗑️ Excluir</span>' +
                       '</td></tr>';
           });
@@ -2363,8 +2550,41 @@ function mostrarModalEdicao(colaborador) {
           div.innerHTML = html;
       }
 
+      function prepararEdicaoDependente(d) {
+          document.getElementById('dep_id').value = d.id;
+          document.getElementById('dep_nome').value = d.nome;
+          document.getElementById('dep_cpf').value = d.cpf || '';
+          document.getElementById('dep_cpf').disabled = true; // CPF nao editavel
+          document.getElementById('dep_nasc').value = d.data_nasc ? d.data_nasc.split('T')[0] : '';
+          document.getElementById('dep_parentesco').value = d.parentesco;
+          document.getElementById('dep_matricula').value = d.matricula || '';
+          
+          document.getElementById('titulo_dep').innerText = '✏️ Editar Dependente:';
+          document.getElementById('btn_salvar_dep').textContent = 'Salvar Alteração';
+          document.getElementById('btn_cancelar_dep').style.display = 'block';
+          
+          // Scroll to form
+          document.getElementById('titulo_dep').scrollIntoView({ behavior: 'smooth' });
+      }
+
+      function cancelarEdicaoDependente() {
+          document.getElementById('dep_id').value = '';
+          document.getElementById('dep_nome').value = '';
+          document.getElementById('dep_cpf').value = '';
+          document.getElementById('dep_cpf').disabled = false;
+          document.getElementById('dep_nasc').value = '';
+          document.getElementById('dep_parentesco').value = '';
+          document.getElementById('dep_matricula').value = '';
+          
+          document.getElementById('titulo_dep').innerText = '➕ Adicionar Dependente:';
+          document.getElementById('btn_salvar_dep').textContent = 'Adicionar';
+          document.getElementById('btn_cancelar_dep').style.display = 'none';
+      }
+
       function adicionarDependenteUI(btn) {
           var id = document.getElementById('colaborador_id').value;
+          var depId = document.getElementById('dep_id').value;
+          
           var nome = document.getElementById('dep_nome').value;
           var cpf = document.getElementById('dep_cpf').value;
           var nasc = document.getElementById('dep_nasc').value;
@@ -2379,29 +2599,53 @@ function mostrarModalEdicao(colaborador) {
           btn.disabled = true;
           btn.textContent = '⏳ ...';
 
-          var novoDep = { nome: nome, cpf: cpf, data_nasc: nasc, parentesco: parentesco, matricula: matricula };
+          var dadosDep = { nome: nome, cpf: cpf, data_nasc: nasc, parentesco: parentesco, matricula: matricula };
 
-          google.script.run.withSuccessHandler(function(res) {
-              btn.disabled = false;
-              btn.textContent = 'Adicionar';
-              if (res.success) {
-                  document.getElementById('dep_nome').value = '';
-                  document.getElementById('dep_cpf').value = '';
-                  document.getElementById('dep_nasc').value = '';
-                  document.getElementById('dep_matricula').value = '';
-                  carregarDependentesUI(id);
-              } else {
-                  alert('Erro: ' + res.error);
-              }
-          }).adicionarDependenteAPI(id, novoDep);
+          if (depId) {
+              // UPDATE
+              google.script.run.withSuccessHandler(function(res) {
+                  console.log('CLIENTE: Resposta Update:', res); // Log no browser
+                  btn.disabled = false;
+                  btn.textContent = 'Salvar Alteração';
+                  if (res.success) {
+                      cancelarEdicaoDependente(); // Reset form
+                      carregarDependentesUI(id);
+                  } else {
+                      // Mostra o erro COMPLETO no alert
+                      alert('Erro ao atualizar (Detalhes): ' + (typeof res.error === 'object' ? JSON.stringify(res.error) : res.error));
+                  }
+              }).atualizarDependenteAPI(depId, dadosDep);
+          } else {
+              // CREATE
+              google.script.run.withSuccessHandler(function(res) {
+                  btn.disabled = false;
+                  btn.textContent = 'Adicionar';
+                  if (res.success) {
+                      cancelarEdicaoDependente(); // Reset form
+                      carregarDependentesUI(id);
+                  } else {
+                      alert('Erro ao adicionar: ' + res.error);
+                  }
+              }).adicionarDependenteAPI(id, dadosDep);
+          }
       }
 
+      // FIX B1d: Adicionado withFailureHandler
       function removerDependenteUI(depId) {
           if(!confirm('Tem certeza que deseja excluir este dependente?')) return;
           var id = document.getElementById('colaborador_id').value;
-          google.script.run.withSuccessHandler(function() {
-              carregarDependentesUI(id);
-          }).removerDependenteAPI(depId);
+          google.script.run
+              .withSuccessHandler(function(res) {
+                  if (res && res.success === false) {
+                      alert('❌ Erro ao remover dependente: ' + res.error);
+                  }
+                  carregarDependentesUI(id);
+              })
+              .withFailureHandler(function(err) {
+                  console.error('🔴 Falha ao remover dependente (Edge):', err);
+                  alert('❌ Falha de comunicação ao excluir. Tente novamente.');
+              })
+              .removerDependenteAPI(depId);
       }
     </script>
   `).setWidth(600).setHeight(750);
@@ -2417,7 +2661,7 @@ function atualizarColaboradorAPI(cpf, dados) {
     try {
         Logger.log('ATUALIZANDO COLABORADOR ' + cpf);
         Logger.log('PAYLOAD: ' + JSON.stringify(dados));
-        
+
         var url = CONFIG.API_URL + '/colaboradores/' + cpf;
         var options = {
             method: 'put',
@@ -2427,21 +2671,37 @@ function atualizarColaboradorAPI(cpf, dados) {
         };
         var response = UrlFetchApp.fetch(url, options);
         var res = JSON.parse(response.getContentText());
-        
+
         Logger.log('RESPOSTA ATUALIZACAO: ' + JSON.stringify(res));
-        
+
         return res;
     } catch (e) {
         return { success: false, error: e.message };
     }
 }
 
+// =====================================================
+// HELPER HTML SECURITY
+// =====================================================
+function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
+}
+
 function listarPlanosAPI() {
     try {
         var url = CONFIG.API_URL + '/planos';
-        var response = UrlFetchApp.fetch(url);
+        var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        var status = response.getResponseCode();
+        if (status !== 200) return { success: false, error: 'HTTP ' + status };
         return JSON.parse(response.getContentText());
     } catch (e) {
+        Logger.log('listarPlanosAPI ERR: ' + e.toString());
         return { success: false, error: e.message };
     }
 }
@@ -2449,22 +2709,18 @@ function listarPlanosAPI() {
 function buscarPlanosColaboradorAPI(id) {
     try {
         var url = CONFIG.API_URL + '/colaboradores/' + id + '/planos';
-        var response = UrlFetchApp.fetch(url);
+        var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        var status = response.getResponseCode();
+        if (status !== 200) return { success: false, data: [], error: 'HTTP ' + status };
         var res = JSON.parse(response.getContentText());
-        
-        Logger.log('BUSCA PLANOS (' + id + '): ' + JSON.stringify(res));
-        
-        // Normalização
-        if (res.success) {
-            if (!res.data) {
-                if (res.planos) res.data = res.planos;
-                else if (res.lista) res.data = res.lista;
-                else res.data = [];
-            }
+        Logger.log('BUSCA PLANOS (' + id + '): ' + JSON.stringify(res).substring(0, 200));
+        if (res.success && !res.data) {
+            res.data = res.planos || res.lista || [];
         }
         return res;
     } catch (e) {
-        return { success: false, error: e.message };
+        Logger.log('buscarPlanosColaboradorAPI ERR: ' + e.toString());
+        return { success: false, data: [], error: e.message };
     }
 }
 
@@ -2508,18 +2764,29 @@ function salvarPlanoColaboradorAPI(id, planoId, matricula) {
 
 function listarDependentesAPI(colaboradorId) {
     try {
-        var url = CONFIG.API_URL + '/dependentes?colaborador_id=' + colaboradorId;
-        var response = UrlFetchApp.fetch(url);
-        return JSON.parse(response.getContentText());
+        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+        var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        var status = response.getResponseCode();
+        if (status !== 200) return { success: false, data: [], error: 'HTTP ' + status };
+        var res = JSON.parse(response.getContentText());
+        if (res.success && !res.data) {
+            res.data = res.dependentes || res.lista || [];
+        }
+        return res;
     } catch (e) {
-        return { success: false, error: e.message };
+        Logger.log('listarDependentesAPI ERR: ' + e.toString());
+        return { success: false, data: [], error: e.message };
     }
 }
 
 function adicionarDependenteAPI(colaboradorId, dependente) {
     try {
-        var url = CONFIG.API_URL + '/dependentes';
-        var payload = { ...dependente, colaborador_id: colaboradorId };
+        // FIX: Rota correta aninhada
+        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+
+        // Payload não precisa do colaborador_id pois vai na URL, mas vamos enviar limpo
+        var payload = dependente;
+
         var options = {
             method: 'post',
             contentType: 'application/json',
@@ -2530,6 +2797,41 @@ function adicionarDependenteAPI(colaboradorId, dependente) {
         return JSON.parse(response.getContentText());
     } catch (e) {
         return { success: false, error: e.message };
+    }
+}
+
+function atualizarDependenteAPI(id, dependente) {
+    var raw = '';
+    var url = '';
+    try {
+        url = CONFIG.API_URL + '/dependentes/' + id;
+
+        // Remove CPF do payload para garantir que nao vá
+        var payloadFinal = JSON.parse(JSON.stringify(dependente));
+        delete payloadFinal.cpf;
+
+        console.log('PUT Dependente URL (V2):', url);
+        console.log('Payload V2:', JSON.stringify(payloadFinal));
+
+        var options = {
+            method: 'put',
+            contentType: 'application/json',
+            payload: JSON.stringify(payloadFinal),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        raw = response.getContentText();
+        console.log('Response Raw:', raw);
+
+        // Se retornar HTML (erro do express/vercel), trate
+        if (raw.indexOf('<') === 0) {
+            return { success: false, error: 'Erro HTML retornado: ' + raw.substring(0, 50) + '...' };
+        }
+
+        return JSON.parse(raw);
+    } catch (e) {
+        console.error('Erro atualizarDependenteAPI:', e);
+        return { success: false, error: 'Exc: ' + e.message + ' | Raw: ' + raw };
     }
 }
 
@@ -2545,12 +2847,973 @@ function removerDependenteAPI(id) {
 }
 
 function formatarDataInteligente(data) {
-  if (!data) return "";
-  var dataObj = new Date(data);
-  if (isNaN(dataObj.getTime())) return data;
-  return Utilities.formatDate(dataObj, Session.getScriptTimeZone(), "dd/MM/yyyy");
+    if (!data) return "";
+    var dataObj = new Date(data);
+    if (isNaN(dataObj.getTime())) return data;
+    return Utilities.formatDate(dataObj, Session.getScriptTimeZone(), "dd/MM/yyyy");
 }
 
 function onEdit(e) {
-  // Placeholder
+    // FAST EXIT: Se nao for na aba Colaboradores ou nao for Coluna 1 (A)
+    if (!e) return; // Execucao manual
+
+    const sheet = e.source.getActiveSheet();
+    if (sheet.getName() !== CONFIG.ABAS.COLABORADORES) return;
+
+    const range = e.range;
+    const row = range.getRow();
+    const col = range.getColumn();
+
+    // LOGICA CHECKBOX "SELECIONAR TUDO"
+    // Funciona para o checkbox da linha 3 (Filtro) ou linha 5 (Cabecalho)
+    if (col === 1 && (row === 3 || row === 5)) {
+        const isChecked = range.getValue();
+
+        // Valida se eh booleano para evitar disparos falsos
+        if (typeof isChecked !== 'boolean' && isChecked !== 'TRUE' && isChecked !== 'FALSE') return;
+
+        const lastRow = sheet.getLastRow();
+        if (lastRow < 6) return; // Sem dados
+
+        // Aplica a todos os checkboxes de dados (A6 em diante)
+        // Otimizado: setValue unico para o range inteiro
+        const numRows = lastRow - 5;
+        sheet.getRange(6, 1, numRows, 1).setValue(isChecked);
+
+        // Feedback visual opcional (Toast)
+        e.source.toast(isChecked ? '✅ Todos selecionados' : '⬜ Seleção limpa');
+    }
+}
+
+
+
+// =====================================================
+// HISTÓRICO DE VERSÕES (RESTAURADO)
+// =====================================================
+// FUNCIONALIDADES DE HISTÓRICO (RESTAURADO)
+// =====================================================
+
+// 1. API WRAPPERS
+// FIX B2: Adicionado muteHttpExceptions + validação de status HTTP
+// Sem muteHttpExceptions, o Edge (com headers diferentes) acionava PERMISSION_DENIED
+function listarHistoricoAPI(tipo) {
+    const endpoint = CONFIG.API_URL + '/relatorios/historico';
+    const payload = { tipo: tipo || null, limit: 20 };
+
+    const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true  // FIX: previne ScriptError PERMISSION_DENIED
+    };
+
+    try {
+        const response = UrlFetchApp.fetch(endpoint, options);
+        const statusCode = response.getResponseCode();
+        const body = response.getContentText();
+
+        Logger.log('[Historico] HTTP ' + statusCode);
+        Logger.log('[Historico] Body: ' + body.substring(0, 300));
+
+        if (statusCode !== 200) {
+            return { success: false, error: 'HTTP ' + statusCode + ': ' + body.substring(0, 150) };
+        }
+
+        return JSON.parse(body);
+    } catch (e) {
+        Logger.log('[Historico] Exception: ' + e.toString());
+        return { success: false, error: e.message };
+    }
+}
+
+// FIX B3: Adicionado muteHttpExceptions para evitar PERMISSION_DENIED no Edge
+function obterHistoricoAPI(id) {
+    const endpoint = CONFIG.API_URL + '/relatorios/historico/' + id;
+
+    try {
+        const response = UrlFetchApp.fetch(endpoint, { muteHttpExceptions: true });
+        const statusCode = response.getResponseCode();
+        const body = response.getContentText();
+
+        Logger.log('[ObterHistorico] HTTP ' + statusCode + ' | ID: ' + id);
+
+        if (statusCode !== 200) {
+            return { success: false, error: 'HTTP ' + statusCode + ': ' + body.substring(0, 100) };
+        }
+
+        return JSON.parse(body);
+    } catch (e) {
+        Logger.log('[ObterHistorico] Exception: ' + e.toString());
+        return { success: false, error: e.message };
+    }
+}
+
+// 2. MODAL UI
+// ABORDAGEM DEFINITIVA: Gera o HTML da tabela 100% no servidor (GAS).
+// ZERO injecao de JSON. ZERO google.script.run no carregamento.
+// Imune a qualquer caracter especial nos dados do snapshot.
+function listarHistoricoModal() {
+
+    // Busca dados no servidor (codigo GAS, nao cliente)
+    var resultado = listarHistoricoAPI(null);
+
+    // Gera HTML da tabela diretamente no GAS — sem intermediacao de JSON
+    var contentHtml = '';
+    if (!resultado || !resultado.success) {
+        var errMsg = escapeHtml(resultado ? (resultado.error || 'Erro desconhecido') : 'Servidor nao respondeu');
+        contentHtml = '<div style="color:#d93025;background:#fce8e6;padding:14px;border-radius:6px;border-left:4px solid #d93025;">'
+            + '<strong>❌ Erro ao carregar histórico:</strong><br>' + errMsg + '</div>';
+    } else {
+        var lista = resultado.historico;
+        if (!lista || lista.length === 0) {
+            contentHtml = '<div style="color:#666;font-style:italic;padding:20px;text-align:center;">📭 Nenhum snapshot encontrado.<br>Gere relatórios para criar snapshots automaticamente.</div>';
+        } else {
+            contentHtml = '<table style="width:100%;border-collapse:collapse;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.1);border-radius:6px;overflow:hidden;">'
+                + '<thead><tr style="background:#f1f3f4;">'
+                + '<th style="padding:11px 14px;text-align:left;font-size:13px;font-weight:600;color:#5f6368;border-bottom:1px solid #eee;">Data/Hora</th>'
+                + '<th style="padding:11px 14px;text-align:left;font-size:13px;font-weight:600;color:#5f6368;border-bottom:1px solid #eee;">Tipo</th>'
+                + '<th style="padding:11px 14px;text-align:left;font-size:13px;font-weight:600;color:#5f6368;border-bottom:1px solid #eee;">Referência</th>'
+                + '<th style="padding:11px 14px;text-align:left;font-size:13px;font-weight:600;color:#5f6368;border-bottom:1px solid #eee;">Ação</th>'
+                + '</tr></thead><tbody>';
+
+            for (var i = 0; i < lista.length; i++) {
+                var item = lista[i];
+                var createdAt = item.created_at || '';
+                var dataFmt = '';
+                try {
+                    dataFmt = new Date(createdAt).toLocaleString('pt-BR', {
+                        day: '2-digit', month: '2-digit', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                } catch (_) { dataFmt = String(createdAt).substring(0, 16); }
+
+                var tipo = String(item.tipo || 'desconhecido').toLowerCase();
+                var tipoLabel = tipo.toUpperCase();
+
+                var badgeColors = {
+                    'folha': 'background:#e8f0fe;color:#1967d2',
+                    'beneficios': 'background:#e6f4ea;color:#137333',
+                    'variavel': 'background:#fce8e6;color:#c5221f',
+                    'apontamentos': 'background:#fef7e0;color:#b06000',
+                    'seguros': 'background:#f3e8fd;color:#7527a1'
+                };
+                var badgeStyle = badgeColors[tipo] || 'background:#e8eaed;color:#3c4043';
+
+                var ref = '-';
+                if (item.mes_referencia && item.ano_referencia) {
+                    ref = String(item.mes_referencia).length === 1
+                        ? '0' + item.mes_referencia + '/' + item.ano_referencia
+                        : item.mes_referencia + '/' + item.ano_referencia;
+                }
+
+                // ID é UUID (alfanumérico + hífens) — escapeHtml para garantia
+                var idSafe = escapeHtml(String(item.id));
+
+                contentHtml += '<tr>'
+                    + '<td style="padding:11px 14px;font-size:13px;border-bottom:1px solid #eee;">' + escapeHtml(dataFmt) + '</td>'
+                    + '<td style="padding:11px 14px;font-size:13px;border-bottom:1px solid #eee;">'
+                    + '<span style="padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;' + badgeStyle + '">' + escapeHtml(tipoLabel) + '</span>'
+                    + '</td>'
+                    + '<td style="padding:11px 14px;font-size:13px;border-bottom:1px solid #eee;">' + escapeHtml(ref) + '</td>'
+                    + '<td style="padding:11px 14px;font-size:13px;border-bottom:1px solid #eee;">'
+                    + '<button onclick="restaurar(&quot;' + idSafe + '&quot;)" style="background:#1a73e8;color:white;border:none;padding:6px 13px;border-radius:4px;cursor:pointer;font-size:12px;">📂 Restaurar</button>'
+                    + '</td>'
+                    + '</tr>';
+            }
+            contentHtml += '</tbody></table>';
+            contentHtml += '<p style="color:#999;font-size:11px;margin-top:10px;">✅ ' + lista.length + ' snapshot(s) — gerado pelo servidor | Chrome e Edge compatíveis</p>';
+        }
+    }
+
+    // HTML FINAL: nenhuma variavel de dados injetada via script tag
+    // Apenas o HTML da tabela (ja escapado) e a funcao restaurar (recebe UUID seguro via onclick)
+    var htmlStr = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
+        + '<style>body{font-family:\'Segoe UI\',Roboto,Arial,sans-serif;padding:20px;background:#f8f9fa;margin:0}'
+        + 'h2{color:#1a73e8;margin-top:0;font-size:18px}'
+        + 'p.sub{color:#5f6368;margin-top:0;font-size:13px}'
+        + '</style></head><body>'
+        + '<h2>📜 Histórico de Versões</h2>'
+        + '<p class="sub">Visualize e restaure snapshots gerados pelo sistema.</p>'
+        + contentHtml
+        + '<script>'
+        // Funcao restaurar: recebe UUID (sem caracteres perigosos), chama GAS server action
+        + 'function restaurar(id) {'
+        + '  if(!confirm("⚠️ Restaurar este snapshot irá criar uma nova aba na planilha. Continuar?")) return;'
+        + '  var btns = document.querySelectorAll("button");'
+        + '  btns.forEach(function(b){ b.disabled=true; });'
+        + '  google.script.run'
+        + '    .withSuccessHandler(function(res) {'
+        + '      if(res && res.success === false) {'
+        + '        alert("❌ Erro ao restaurar: " + res.error);'
+        + '        btns.forEach(function(b){ b.disabled=false; });'
+        + '      } else {'
+        + '        alert("✅ Snapshot restaurado! Verifique a nova aba criada na planilha.");'
+        + '        google.script.host.close();'
+        + '      }'
+        + '    })'
+        + '    .withFailureHandler(function(err) {'
+        + '      alert("❌ Falha ao restaurar: " + (err && err.message ? err.message : String(err)));'
+        + '      btns.forEach(function(b){ b.disabled=false; });'
+        + '    })'
+        + '    .carregarSnapshotParaAba(id);'
+        + '}'
+        + '<\/script>'
+        + '</body></html>';
+
+    var html = HtmlService.createHtmlOutput(htmlStr).setWidth(720).setHeight(520);
+    SpreadsheetApp.getUi().showModalDialog(html, '📜 Histórico de Versões');
+}
+
+// HELPERS CRÍTICOS (CORREÇÃO DE SNAPSHOTS)
+// =====================================================
+
+function mapearColunasDoHeader(headers, mapeamentoPossivel) {
+    const map = {};
+    const headersNorm = headers.map(h => String(h).toUpperCase().trim());
+
+    for (const [campoFinal, variacoes] of Object.entries(mapeamentoPossivel)) {
+        let colIndex = -1;
+        // Tenta encontrar alguma variação nos headers
+        for (const v of variacoes) {
+            const vNorm = String(v).toUpperCase().trim();
+            colIndex = headersNorm.findIndex(h => h === vNorm || h.includes(vNorm));
+            if (colIndex > -1) break;
+        }
+        if (colIndex > -1) {
+            map[campoFinal] = colIndex;
+        }
+    }
+    return map;
+}
+
+function normalizarDadosParaEnvio(dados, tipo) {
+    return dados.map(item => {
+        // Clone raso
+        const normalizado = JSON.parse(JSON.stringify(item));
+
+        // Normalização de Nomes
+        if (normalizado.nome_colaborador && !normalizado.nome) normalizado.nome = normalizado.nome_colaborador;
+        if (normalizado.nome_completo && !normalizado.nome) normalizado.nome = normalizado.nome_completo;
+
+        // Limpeza de campos internos de snapshot
+        delete normalizado.dados_snapshot;
+        delete normalizado.relatorio_id;
+        delete normalizado.created_at;
+        delete normalizado.id; // ID do snapshot não deve ir como ID do registro novo
+
+        // Garantias por Tipo
+        if (tipo === 'folha') {
+            normalizado.mes_referencia = normalizado.mes_referencia || normalizado.mes || 0;
+            normalizado.ano_referencia = normalizado.ano_referencia || normalizado.ano || 0;
+        }
+
+        return normalizado;
+    });
+}
+
+// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (REFATORADA V4)
+// 3. LOGICA DE CARREGAR SNAPSHOT PARA ABA (REFATORADA V5 - DEDUPLICADA)
+function carregarSnapshotParaAba(id) {
+    const res = obterHistoricoAPI(id);
+    if (!res.success) throw new Error(res.error);
+
+    const header = res.relatorio;
+    const itens = res.itens;
+    const tipo = header.tipo;
+
+    // METADADOS CRÍTICOS
+    const metadados = {
+        snapshot_id: header.id,
+        data_geracao: header.created_at,
+        mes_referencia: header.mes_referencia,
+        ano_referencia: header.ano_referencia,
+        tipo: tipo
+    };
+
+    // ROTEAMENTO POR TIPO
+    if (tipo === 'folha' || tipo === 'folha_pagamento') {
+        restaurarSnapshotFolha(itens, metadados);
+    } else if (tipo === 'beneficios') {
+        restaurarSnapshotBeneficios(itens, metadados);
+    } else if (tipo === 'variavel') {
+        restaurarSnapshotVariavel(itens, metadados);
+    } else if (tipo === 'apontamentos') {
+        restaurarSnapshotApontamentos(itens, metadados);
+    } else {
+        throw new Error('Tipo de snapshot não suportado: ' + tipo);
+    }
+
+    return { success: true };
+}
+
+// === RESTAURADORES ESPECÍFICOS ===
+
+function restaurarSnapshotBeneficios(itens, metadados) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
+    const nomeAba = `V.${dataStr} - Benefícios ${metadados.mes_referencia}/${metadados.ano_referencia}`;
+
+    // Criar ou limpar aba
+    let sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear();
+    else sheet = ss.insertSheet(nomeAba);
+
+    // === CORESDO TEMPLATE ORIGINAL ===
+    const COR_AMARELO = '#f1c232';
+    const COR_VERDE_FIXO = '#d9ead3';
+
+    // === RECONSTRUIR CABEÇALHO DE PARÂMETROS ===
+
+    // TRANSPORTE (B2:C6)
+    sheet.getRange('B2:C2').merge().setValue('Transporte')
+        .setBackground(COR_AMARELO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, true);
+    sheet.getRange('B3').setValue('VALOR DIA').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C3').setValue(14.35).setNumberFormat('R$ #,##0.00').setBorder(true, true, true, true, true, true);
+    sheet.getRange('B4').setValue('DIAS CORRIDOS NO MÊS').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C4').setValue(20).setBorder(true, true, true, true, true, true);
+    sheet.getRange('B5').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C5').setFormula('=C3*C4').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('B6').setValue('VALOR FIXO').setFontWeight('bold').setBackground(COR_VERDE_FIXO).setBorder(true, true, true, true, true, true);
+    sheet.getRange('C6').setValue(330.00).setNumberFormat('R$ #,##0.00').setBackground(COR_VERDE_FIXO).setBorder(true, true, true, true, true, true);
+
+    // ALIMENTAÇÃO (B7:C10)
+    sheet.getRange('B7:C7').merge().setValue('Alimentação')
+        .setBackground(COR_AMARELO).setFontWeight('bold').setHorizontalAlignment('center').setBorder(true, true, true, true, true, true);
+    sheet.getRange('B8').setValue('VALOR DIA').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C8').setValue(35.00).setNumberFormat('R$ #,##0.00').setBorder(true, true, true, true, true, true);
+    sheet.getRange('B9').setValue('DIAS ÚTEIS NO MÊS').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C9').setValue(20).setBorder(true, true, true, true, true, true);
+    sheet.getRange('B10').setValue('VALOR TOTAL').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+    sheet.getRange('C10').setFormula('=C8*C9').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setBorder(true, true, true, true, true, true);
+
+    // TOTALIZADORES (E9:F11)
+    sheet.getRange('E9:F9').merge().setValue('Total Beneficios').setHorizontalAlignment('center');
+    sheet.getRange('E10:F10').merge().setFormula('=E11+F11').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+    sheet.getRange('E11').setFormula('=SUM(E13:E)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
+    sheet.getRange('F11').setFormula('=SUM(F13:F)').setNumberFormat('R$ #,##0.00').setFontWeight('bold').setHorizontalAlignment('center');
+
+    // HEADERS COLS (E12, F12)
+    sheet.getRange('E12').setValue('Alimentação').setFontWeight('bold').setBackground(COR_AMARELO).setBorder(true, true, true, true, true, true).setHorizontalAlignment('center');
+    sheet.getRange('F12').setValue('Transporte').setFontWeight('bold').setBackground(COR_AMARELO).setBorder(true, true, true, true, true, true).setHorizontalAlignment('center');
+
+    // === CABEÇALHO DA TABELA (Linha 12) ===
+    const headers = ['#', 'NOME', 'Cidade', 'FÉRIAS', 'Alimentação', 'Transporte'];
+    sheet.getRange(12, 1, 1, headers.length).setValues([headers])
+        .setFontWeight('bold')
+        .setBorder(true, true, true, true, true, true)
+        .setHorizontalAlignment('center');
+
+    sheet.getRange(12, 4, 1, 3).setBackground(COR_AMARELO); // Cols D, E, F
+    sheet.getRange(12, 1, 1, 3).setBackground('#f3f3f3'); // Cols A, B, C
+
+    // === PROCESSAMENTO E DEDUPLICAÇÃO ===
+    const mapaCPF = new Map();
+
+    // MAPA DE CIDADES (Lookup na aba Colaboradores para garantir preenchimento) (CORREÇÃO DE CIDADE VAZIA)
+    const sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
+    const dadosColab = sheetColab ? sheetColab.getDataRange().getValues() : [];
+    const mapCidades = {};
+    if (dadosColab.length > 5) {
+        for (let i = 5; i < dadosColab.length; i++) {
+            const cpfC = String(dadosColab[i][1]).replace(/\D/g, '');
+            // Coluna 5 era Depto. Agora Cidade é Coluna 6 (Index 5)
+            // Se o usuário ainda não atualizou a aba Colaboradores, isso pode pegar Salário (se for a layout antigo).
+            // Vamos tentar detectar header? Não, assumir que user vai atualizar.
+            const cidadeC = dadosColab[i][5];
+            if (cpfC) mapCidades[cpfC] = cidadeC;
+        }
+    }
+
+    itens.forEach(item => {
+        const d = item.dados_snapshot;
+        const cpf = d.cpf ? String(d.cpf).replace(/\D/g, '') : null;
+        if (!cpf) return;
+
+        if (!mapaCPF.has(cpf)) {
+            // Tenta pegar cidade do snapshot, se falhar pega do cadastro atual
+            let cidade = d.cidade || d.local_trabalho || '-';
+            if ((!cidade || cidade === '-') && mapCidades[cpf]) {
+                cidade = mapCidades[cpf];
+            }
+
+            mapaCPF.set(cpf, {
+                cpf: cpf,
+                nome: d.nome || d.nome_colaborador || d.nome_completo || 'SEM NOME',
+                cidade: cidade,
+                ferias: d.ferias || '',
+                valAlim: 0,
+                valTransp: 0
+            });
+        }
+
+        const r = mapaCPF.get(cpf);
+
+        // Atualizar Nome/Cidade se o registro atual tiver dados melhores
+        if (r.nome === 'SEM NOME' && (d.nome || d.nome_colaborador)) r.nome = d.nome || d.nome_colaborador;
+        if ((!r.cidade || r.cidade === '-') && (d.cidade || d.local_trabalho)) r.cidade = d.cidade || d.local_trabalho;
+
+        // Somar Valores (Tratar Lista e Matriz)
+        let valor = parseFloat(d.valor) || 0;
+        let tipo = (d.tipo_beneficio || '').toLowerCase(); // Lista (Snapshot V1 e V2)
+
+        // Se o snapshot for antigo/flat (Matriz - Ex: restaurado de planilha antiga)
+        if (d.vale_alimentacao) { r.valAlim = parseFloat(d.vale_alimentacao); }
+        if (d.vale_transporte) { r.valTransp = parseFloat(d.vale_transporte); }
+
+        // Se for lista (rows separados - Padrão V3)
+        if (tipo === 'vale_alimentacao' && valor > 0) r.valAlim += valor;
+        else if (tipo === 'vale_transporte' && valor > 0) r.valTransp += valor;
+        // Se o tipo for indefinido mas tiver valor, assumir algo? Não, perigoso.
+    });
+
+    const linhas = Array.from(mapaCPF.values()).map((r, i) => {
+        const seq = String(i + 1).padStart(4, '0');
+        return [seq, r.nome, r.cidade, r.ferias, r.valAlim, r.valTransp];
+    });
+
+    if (linhas.length > 0) {
+        sheet.getRange(13, 1, linhas.length, headers.length).setValues(linhas);
+        sheet.getRange(13, 5, linhas.length, 2).setNumberFormat('R$ #,##0.00'); // Cols E, F
+        sheet.getRange(13, 1, linhas.length, 1).setHorizontalAlignment('center'); // # centralizado
+        sheet.getRange(13, 3, linhas.length, 1).setHorizontalAlignment('center'); // Cidade centralizada
+    }
+
+    // === LARGURAS ===
+    sheet.setColumnWidth(1, 50);  // #
+    sheet.setColumnWidth(2, 300); // Nome
+    sheet.setColumnWidth(3, 100); // Cidade
+    sheet.setColumnWidth(4, 150); // Férias
+    sheet.setColumnWidth(5, 120); // Alim
+    sheet.setColumnWidth(6, 120); // Transp
+
+    // === METADADOS OCULTOS (Linha 1 - Invisível) ===
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff').setBackground('#ffffff');
+    sheet.hideRows(1);
+
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',
+        `Snapshot de ${dataStr}\nCompetência: ${metadados.mes_referencia}/${metadados.ano_referencia}\n\nEdite os valores e use "Enviar Benefícios" para salvar.`,
+        SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function restaurarSnapshotFolha(itens, metadados) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
+    const nomeAba = `V. ${dataStr} - Folha ${metadados.mes_referencia}/${metadados.ano_referencia}`;
+
+    let sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear();
+    else sheet = ss.insertSheet(nomeAba);
+
+    const headers = [
+        'CPF', 'Nome', 'Mês', 'Ano',
+        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
+        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
+        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
+        'Odont. Func.', 'Odont. Dep.',
+        'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
+    ];
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
+        .setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
+
+    const mapaCPF = new Map();
+    itens.forEach(item => {
+        const d = item.dados_snapshot;
+        const cpf = d.cpf ? String(d.cpf).replace(/\D/g, '') : null;
+        if (cpf) mapaCPF.set(cpf, d);
+    });
+
+    const linhas = Array.from(mapaCPF.values()).map(d => {
+        const nome = d.nome || d.nome_colaborador || 'SEM NOME';
+        const cpf = d.cpf ? formatarCPFParaExibicao(d.cpf) : '';
+        const formatDate = (val) => {
+            if (!val) return '';
+            const dt = new Date(val);
+            return isNaN(dt.getTime()) ? '' : dt.toISOString().split('T')[0];
+        };
+
+        return [
+            cpf, nome,
+            d.mes_referencia || metadados.mes_referencia,
+            d.ano_referencia || metadados.ano_referencia,
+            d.local_trabalho || '',
+            formatDate(d.data_admissao),
+            parseFloat(d.socio || 0),
+            parseFloat(d.salario_base || 0),
+            d.cargo || '',
+            d.departamento || '',
+            d.convenio_escolhido || '',
+            formatDate(d.data_nascimento),
+            d.idade || '',
+            d.faixa_etaria || '',
+            parseFloat(d.vl_100_amil || 0),
+            parseFloat(d.vl_empresa_amil || 0),
+            parseFloat(d.vl_func_amil || 0),
+            parseFloat(d.amil_saude_dep || 0),
+            parseFloat(d.odont_func || 0),
+            parseFloat(d.odont_dep || 0),
+            d.status_pagamento || 'pendente',
+            formatDate(d.data_pagamento),
+            d.observacoes || ''
+        ];
+    });
+
+    if (linhas.length > 0) {
+        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    }
+    sheet.setColumnWidth(2, 200);
+    sheet.setFrozenColumns(2);
+
+    // Metadados
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff').setBackground('#ffffff');
+    sheet.hideRows(1);
+
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('✅ Snapshot Restaurado!',
+        `Snapshot de ${dataStr}\nCompetência: ${metadados.mes_referencia}/${metadados.ano_referencia}`,
+        SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// Stubs para Variavel e Apontamentos
+function restaurarSnapshotVariavel(itens, metadados) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
+    const nomeAba = `V. ${dataStr} - Variável ${metadados.mes_referencia}/${metadados.ano_referencia}`;
+    let sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear(); else sheet = ss.insertSheet(nomeAba);
+
+    // Assumindo lista simples
+    const headers = ['CPF', 'Nome', 'Cargo', 'Valor Comissão', 'Valor Bônus', 'Total', 'Descrição', 'Status'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+
+    const mapa = new Map();
+    itens.forEach(i => {
+        const d = i.dados_snapshot;
+        const cpf = String(d.cpf).replace(/\D/g, '');
+        if (!mapa.has(cpf)) mapa.set(cpf, { cpf, nome: d.nome || d.nome_colaborador, cargo: d.cargo, comissao: 0, bonus: 0, desc: [], status: 'pendente' });
+
+        const r = mapa.get(cpf);
+        const val = parseFloat(d.valor) || 0;
+        const tipo = (d.tipo || d.tipo_apontamento || '').toLowerCase(); // variavel pode ter campo tipo
+
+        // Inferência simples
+        if (tipo.includes('bonus')) r.bonus += val;
+        else r.comissao += val;
+
+        if (d.descricao) r.desc.push(d.descricao);
+    });
+
+    const linhas = Array.from(mapa.values()).map(r => [
+        r.cpf, r.nome, r.cargo, r.comissao, r.bonus, r.comissao + r.bonus, r.desc.join('; '), r.status
+    ]);
+
+    if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+    sheet.setRowHeight(1, 1);
+    ss.setActiveSheet(sheet);
+}
+
+function restaurarSnapshotApontamentos(itens, metadados) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const dataStr = new Date(metadados.data_geracao).toISOString().split('T')[0];
+    const nomeAba = `V. ${dataStr} - Apontamentos ${metadados.mes_referencia}/${metadados.ano_referencia}`;
+    let sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear(); else sheet = ss.insertSheet(nomeAba);
+
+    const headers = ['CPF', 'Nome', 'Dias Trabalhados', 'Faltas', 'Horas Atraso', 'Horas Extras', 'Banco Horas', 'Obs'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+
+    const mapa = new Map();
+    itens.forEach(i => {
+        const d = i.dados_snapshot;
+        const cpf = String(d.cpf).replace(/\D/g, '');
+        if (!mapa.has(cpf)) mapa.set(cpf, { cpf, nome: d.nome || d.nome_colaborador, dias: 20, faltas: 0, atrasos: 0, he: 0, banco: 0, obs: [] });
+
+        const r = mapa.get(cpf);
+        const val = parseFloat(d.valor) || 0;
+        const tipo = (d.tipo_apontamento || '').toLowerCase();
+
+        if (tipo.includes('falta')) r.faltas += val;
+        else if (tipo.includes('atraso')) r.atrasos += val;
+        else if (tipo.includes('extra')) r.he += val;
+        else if (tipo.includes('banco')) r.banco += val;
+
+        if (d.obs) r.obs.push(d.obs);
+    });
+
+    const linhas = Array.from(mapa.values()).map(r => [
+        r.cpf, r.nome, r.dias, r.faltas, r.atrasos, r.he, r.banco, r.obs.join('; ')
+    ]);
+    if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+    sheet.setRowHeight(1, 1);
+    ss.setActiveSheet(sheet);
+}
+
+
+// =====================================================
+// FUNCAO DE DIAGNOSTICO - Execute no Apps Script Editor
+// =====================================================
+function testarCompatibilidadeEdge() {
+    Logger.log('=== DIAGNOSTICO DE COMPATIBILIDADE ===');
+    try { var t1 = listarPlanosAPI(); Logger.log('listarPlanosAPI: ' + (t1.success ? 'OK ' + (t1.data || []).length + ' planos' : 'FALHA ' + t1.error)); } catch (e) { Logger.log('listarPlanosAPI ERR: ' + e.message); }
+    try { var t2 = listarHistoricoAPI(null); Logger.log('listarHistoricoAPI: ' + (t2.success ? 'OK ' + (t2.historico || []).length + ' snapshots' : 'FALHA ' + t2.error)); } catch (e) { Logger.log('listarHistoricoAPI ERR: ' + e.message); }
+    Logger.log('API URL: ' + CONFIG.API_URL);
+    Logger.log('escapeHtml test: ' + escapeHtml('<script>alert(1)</script>'));
+    SpreadsheetApp.getUi().alert('Diagnostico concluido! Veja Apps Script > Logs');
+}
+
+// =====================================================
+// DASHBOARD ANALÍTICO (SPRINT 1)
+// =====================================================
+
+function buscarDashboardAPI() {
+    try {
+        var options = {
+            method: 'get',
+            headers: { 'Content-Type': 'application/json' },
+            muteHttpExceptions: true
+        };
+        var url = CONFIG.API_URL + '/dashboard/kpis';
+        var response = UrlFetchApp.fetch(url, options);
+        var statusCode = response.getResponseCode();
+        
+        if (statusCode !== 200) {
+            throw new Error('HTTP ' + statusCode + ': ' + response.getContentText());
+        }
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        Logger.log('Erro Dashboard API: ' + e.message);
+        return { success: false, error: e.message };
+    }
+}
+
+function abrirDashboardModal() {
+    var ui = SpreadsheetApp.getUi();
+    
+    // PRE-LOAD SERVER SIDE (Fix Edge PERMISSION_DENIED)
+    var dashboardData = { success: false, error: "Inicializando" };
+    try {
+        dashboardData = buscarDashboardAPI();
+    } catch(e) {
+        dashboardData = { success: false, error: e.message };
+    }
+    
+    var srvTag = '<script type="application/json" id="srvdashboard">' + JSON.stringify(dashboardData).replace(/<\//g, '\\u003c/') + '<\/script>';
+    
+    var htmlContent = srvTag + `
+    <!-- HTML START -->
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <base target="_top">
+      <!-- Módulos Google Charts -->
+      <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+      <style>
+        :root {
+          --primary: #4F46E5;
+          --primary-light: #EEF2FF;
+          --text-main: #0F172A;
+          --text-muted: #475569;
+          --border: #E2E8F0;
+          --bg-main: #F8FAFC;
+          --bg-card: #FFFFFF;
+          --success: #10B981;
+          --warning: #F59E0B;
+        }
+        body { 
+          font-family: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+          background-color: var(--bg-main); 
+          color: var(--text-main);
+          margin: 0;
+          padding: 24px;
+        }
+        h2 { 
+          margin-top: 0; 
+          font-size: 24px; 
+          font-weight: 700;
+          color: var(--text-main);
+          margin-bottom: 24px;
+        }
+        
+        /* Grid KPIs */
+        .kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
+          margin-bottom: 24px;
+        }
+        .kpi-card {
+          background: var(--bg-card);
+          padding: 20px;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+          border: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+        }
+        .kpi-card .title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 8px;
+        }
+        .kpi-card .value {
+          font-size: 28px;
+          font-weight: 800;
+          color: var(--primary);
+        }
+        .kpi-card .icon-wrapper {
+          align-self: flex-start;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 40px;
+          height: 40px;
+          border-radius: 8px;
+          background: var(--primary-light);
+          color: var(--primary);
+          margin-bottom: 12px;
+        }
+
+        /* Graficos Grid */
+        .chart-grid {
+          display: grid;
+          grid-template-columns: 2fr 1fr;
+          gap: 24px;
+          margin-bottom: 24px;
+        }
+        .chart-card {
+          background: var(--bg-card);
+          padding: 20px;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+          border: 1px solid var(--border);
+        }
+        .chart-card h3 {
+          font-size: 16px;
+          font-weight: 600;
+          margin-top: 0;
+          margin-bottom: 16px;
+          color: var(--text-main);
+        }
+        .chart-container {
+          width: 100%;
+          height: 300px;
+        }
+        
+        /* Alertas List */
+        .alert-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .alert-item {
+          padding: 12px 16px;
+          background: #FFFBEB;
+          border-left: 4px solid var(--warning);
+          border-radius: 0 8px 8px 0;
+          font-size: 14px;
+          color: #92400E;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .loading-state, .error-state {
+            padding: 40px;
+            text-align: center;
+            font-size: 16px;
+            color: var(--text-muted);
+        }
+        .error-state {
+            color: #DC2626;
+            background: #FEF2F2;
+            border-radius: 8px;
+            border: 1px solid #F87171;
+        }
+        
+        /* SVG Icons */
+        svg { width: 20px; height: 20px; stroke-width: 2; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      </style>
+    </head>
+    <body>
+      
+      <h2>Dashboard Gerencial</h2>
+      
+      <div id="content_area">
+        <div class="loading-state">⚙️ Processando métricas no servidor...</div>
+      </div>
+
+      <script>
+        // Formatter de Moeda
+        const formatBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+        // Icones SVG pro-max style
+        const icons = {
+            users: '<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+            money: '<svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+            gift: '<svg viewBox="0 0 24 24"><polyline points="20 12 20 22 4 22 4 12"></polyline><rect x="2" y="7" width="20" height="5"></rect><line x1="12" y1="22" x2="12" y2="7"></line><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"></path><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"></path></svg>',
+            chart: '<svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>',
+            alert: '<svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>'
+        };
+
+        window.onload = function() {
+            var el = document.getElementById('srvdashboard');
+            if (el) {
+                try {
+                    var data = JSON.parse(el.textContent);
+                    if (data && data.success) {
+                        // Carrega Google Charts
+                        google.charts.load('current', {'packages':['corechart', 'line']});
+                        google.charts.setOnLoadCallback(function() {
+                            renderizarDashboard(data);
+                        });
+                    } else {
+                        mostrarErro(data ? data.error : 'Erro desconhecido na API');
+                    }
+                } catch(e) {
+                    mostrarErro("Erro de parsing: " + e.message);
+                }
+            } else {
+                mostrarErro("Falha: Payload JSON do servidor não encontrado.");
+            }
+        };
+
+        function mostrarErro(msg) {
+            document.getElementById('content_area').innerHTML = '<div class="error-state">❌ Erro ao processar dashboard: ' + msg + '</div>';
+        }
+
+        function renderizarDashboard(payload) {
+            var html = '';
+            
+            // 1. Renderizar KPIs
+            var k = payload.kpis || { colaboradoresAtivos: 0, totalFolhaMes: 0, totalBeneficiosMes: 0, totalVariaveisMes: 0 };
+            html += '<div class="kpi-grid">';
+            html += htmlKpiCard('Colaboradores Ativos', k.colaboradoresAtivos, icons.users);
+            html += htmlKpiCard('Folha do Mês', formatBRL.format(k.totalFolhaMes), icons.money);
+            html += htmlKpiCard('Benefícios', formatBRL.format(k.totalBeneficiosMes), icons.gift);
+            html += htmlKpiCard('Variáveis', formatBRL.format(k.totalVariaveisMes), icons.chart);
+            html += '</div>';
+
+            // 2. Renderizar Gráficos e Alertas
+            html += '<div class="chart-grid">';
+            
+            // Grafico 1: Evolução
+            html += '<div class="chart-card">';
+            html += '<h3>Evolução da Folha (6 Meses)</h3>';
+            html += '<div id="chart_div_evolucao" class="chart-container"></div>';
+            html += '</div>';
+
+            // Lado direito: Departamentos + Alertas
+            html += '<div style="display:flex; flex-direction:column; gap:24px;">';
+            
+            html += '<div class="chart-card">';
+            html += '<h3>Por Departamento</h3>';
+            html += '<div id="chart_div_deps" class="chart-container" style="height:220px;"></div>';
+            html += '</div>';
+
+            html += '<div class="chart-card">';
+            html += '<h3>Notificações</h3>';
+            html += '<div class="alert-list">';
+            if (payload.alertas && payload.alertas.length > 0) {
+                payload.alertas.forEach(function(a) {
+                    html += '<div class="alert-item"><div style="flex-shrink:0;">' + icons.alert + '</div><div>' + a.texto + '</div></div>';
+                });
+            } else {
+                html += '<div style="color:var(--text-muted); font-size:14px;">Sem alertas pendentes.</div>';
+            }
+            html += '</div>';
+            html += '</div>'; // end right column chart-card
+            html += '</div>'; // end right column display:flex
+
+            html += '</div>'; // end chart-grid
+
+            document.getElementById('content_area').innerHTML = html;
+
+            // 3. Desenhar Gráficos com Google Charts API
+            if (payload.graficos) {
+                desenharGraficoEvolucao(payload.graficos.evolucao);
+                desenharGraficoDepartamentos(payload.graficos.departamentos);
+            }
+        }
+
+        function htmlKpiCard(title, value, iconTemplate) {
+            return '<div class="kpi-card"><div class="icon-wrapper">' + iconTemplate + '</div><div class="title">' + title + '</div><div class="value">' + value + '</div></div>';
+        }
+
+        function desenharGraficoEvolucao(evolucaoData) {
+            if(!evolucaoData || evolucaoData.length === 0) return;
+            
+            // Reverter para cronológico
+            var crono = evolucaoData.slice().reverse();
+            
+            var data = new google.visualization.DataTable();
+            data.addColumn('string', 'Mês');
+            data.addColumn('number', 'Folha (R$)');
+            data.addColumn('number', 'Benefícios (R$)');
+
+            crono.forEach(function(item) {
+                data.addRow([item.mes, parseFloat(item.folha)||0, parseFloat(item.beneficios)||0]);
+            });
+
+            var options = {
+                fontName: 'Inter',
+                colors: ['#4F46E5', '#10B981'],
+                chartArea: { width: '85%', height: '75%' },
+                legend: { position: 'top' },
+                vAxis: { minValue: 0, textStyle: { color: '#475569'}, gridlines: { color: '#E2E8F0'} },
+                hAxis: { textStyle: { color: '#475569'} },
+                animation: { startup: true, duration: 1000, easing: 'out' },
+                lineWidth: 3,
+                pointSize: 5
+            };
+
+            var chart = new google.visualization.AreaChart(document.getElementById('chart_div_evolucao'));
+            chart.draw(data, options);
+        }
+
+        function desenharGraficoDepartamentos(depsData) {
+            if(!depsData || depsData.length === 0) return;
+            
+            var data = new google.visualization.DataTable();
+            data.addColumn('string', 'Departamento');
+            data.addColumn('number', 'Ativos');
+
+            depsData.forEach(function(row) {
+                data.addRow([row[0], parseInt(row[1])||0]);
+            });
+
+            var options = {
+                fontName: 'Inter',
+                colors: ['#4F46E5', '#6366F1', '#8B5CF6', '#EC4899', '#14B8A6'],
+                chartArea: { width: '90%', height: '80%' },
+                pieHole: 0.4,
+                legend: { position: 'labeled', textStyle: { fontSize: 12 } },
+                pieSliceText: 'none',
+                pieSliceBorderColor: 'transparent'
+            };
+
+            var chart = new google.visualization.PieChart(document.getElementById('chart_div_deps'));
+            chart.draw(data, options);
+        }
+      </script>
+    </body>
+    </html>
+    <!-- HTML END -->
+    `;
+    
+    var htmlOutput = HtmlService.createHtmlOutput(htmlContent)
+        .setWidth(1080)
+        .setHeight(700);
+        
+    ui.showModalDialog(htmlOutput, 'Dashboard Analítico');
 }

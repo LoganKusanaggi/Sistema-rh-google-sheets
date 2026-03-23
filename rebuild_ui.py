@@ -1,27 +1,22 @@
 import sys
-import re
 
 file_path = "e:\\Projetos_GitHub\\rh-google-sheets\\Sistema-rh-google-sheets\\CODIGO_FINAL_CORRETO.js"
 
 with open(file_path, "r", encoding="utf-8") as f:
     content = f.read()
 
-# Find the VERY FIRST boundary of any dashboard code
+# Find the boundary of the dashboard
 idx = content.find("// DASHBOARD GERENCIAL RH (PRO MAX - SPRINT 2)")
 if idx != -1:
     idx = content.rfind("// =====================================================", 0, idx)
-    # Also trim backwards if there's a literal \n
     if idx != -1:
-        # Check if the literal '\n' is right before it
-        literal_nl_idx = content.rfind("\\n", 0, idx)
-        if literal_nl_idx != -1 and literal_nl_idx >= idx - 5: # Close by
+        literal_nl_idx = content.rfind("\n", 0, idx)
+        if literal_nl_idx != -1 and literal_nl_idx >= idx - 5:
             idx = literal_nl_idx
         content = content[:idx]
 
-# Remove trailing whitespaces
 content = content.rstrip() + "\n\n"
 
-# The raw HTML content
 html_content_raw = """<!-- HTML START -->
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -286,9 +281,21 @@ html_content_raw = """<!-- HTML START -->
 </html>
 <!-- HTML END -->"""
 
-# Safely split by newline and wrap to form a JS string array join
-html_lines = html_content_raw.split("\\n")
-js_html_array = "\\n".join(["    '" + line.replace("'", "\\\\'") + "\\n' +" for line in html_lines])[:-2] + ";"
+# PROPERLY split by lines.
+html_lines = html_content_raw.split("\n")
+
+# Safely wrap each line in single quotes, and concatenate with `+\n`
+# We MUST escape literal single quotes and escape backslashes first, then wrap.
+js_html_lines = []
+for line in html_lines:
+    # 1. Escape existing backslashes in JS string building (useful for \n, etc)
+    escaped = line.replace("\\", "\\\\")
+    # 2. Escape single quotes
+    escaped = escaped.replace("'", "\\'")
+    
+    js_html_lines.append("    '" + escaped + "\\n'")
+
+js_html_str = " +\n".join(js_html_lines) + ";"
 
 new_dashboard = """// =====================================================
 // DASHBOARD GERENCIAL RH (PRO MAX - SPRINT 2)
@@ -337,9 +344,9 @@ function abrirDashboardModal() {
         
     ui.showModalDialog(htmlOutput, 'Dashboard Gerencial RH');
 }
-""" % js_html_array
+""" % js_html_str
 
 with open(file_path, "w", encoding="utf-8") as f:
     f.write(content + new_dashboard)
 
-print("Pro Max Dashboard cleanly injected and duplicates removed!")
+print("Pro Max Dashboard cleanly injected!")

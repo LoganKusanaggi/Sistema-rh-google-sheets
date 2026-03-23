@@ -1,4 +1,4 @@
-const supabase = require('../database/supabase');
+const supabase = require('../config/supabase');
 
 const dashboardController = {
     async obterResumo(req, res) {

@@ -19,7 +19,7 @@ const dashboardController = {
             // 2. Total Folha Mês Atual (folha consolidada ou folha + horas)
             const { data: dadosFolha, error: errFolha } = await supabase
                 .from('folha_pagamento')
-                .select('salario_base, total_descontos, total_proventos')
+                .select('*')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 
@@ -28,7 +28,13 @@ const dashboardController = {
             let totalFolhaMes = 0;
             if (dadosFolha && dadosFolha.length > 0) {
                 totalFolhaMes = dadosFolha.reduce((acc, curr) => {
-                    const prov = parseFloat(curr.total_proventos) || 0;
+                    // Tenta total_proventos primeiro, senão soma salário base + extras
+                    let prov = parseFloat(curr.total_proventos) || 0;
+                    if (prov === 0) {
+                        prov = (parseFloat(curr.salario_base) || 0) +
+                            (parseFloat(curr.horas_extras) || 0) +
+                            (parseFloat(curr.comissoes) || 0);
+                    }
                     return acc + prov;
                 }, 0);
             }
@@ -36,7 +42,7 @@ const dashboardController = {
             // 3. Total Benefícios (VR + VA) Mês Atual
             const { data: dadosBeneficios, error: errBen } = await supabase
                 .from('beneficios')
-                .select('valor_total')
+                .select('*')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 
@@ -52,7 +58,7 @@ const dashboardController = {
             // 4. Total Variáveis Mês Atual
             const { data: dadosVariaveis, error: errVar } = await supabase
                 .from('apuracao_variavel')
-                .select('salario_base, multiplicador')
+                .select('*')
                 .eq('mes_referencia', mesAtual)
                 .eq('ano_referencia', anoAtual);
 

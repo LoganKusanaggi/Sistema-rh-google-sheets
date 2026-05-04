@@ -3,26 +3,55 @@ const RelatorioService = require('../services/relatorioService');
 
 const relatoriosController = {
 
-    // ===== GERAR RELATÓRIO (EXISTENTE) =====
+    // ===== GERAR RELATÓRIO =====
     async gerarRelatorio(req, res) {
         try {
-            const { tipoRelatorio, filtros, user_id } = req.body;
+            const body = req.body || {};
+            const tipo = String(body.tipo || body.tipoRelatorio || '').trim().toLowerCase();
+            const cpfs = Array.isArray(body.cpfs) ? body.cpfs : [];
+            const filtros = body.filtros && typeof body.filtros === 'object' ? body.filtros : {};
+            const formato = body.formato || 'json';
 
-            console.log(`Iniciando geração de relatório: ${tipoRelatorio}`);
+            let periodo = null;
+            if (body.periodo && typeof body.periodo === 'object') {
+                const mes = parseInt(body.periodo.mes, 10);
+                const ano = parseInt(body.periodo.ano, 10);
 
-            // Chama o Service
-            const resultado = await RelatorioService.gerarRelatorio(tipoRelatorio, filtros, user_id);
+                if (!isNaN(mes) && !isNaN(ano)) {
+                    periodo = { mes: mes, ano: ano };
+                }
+            }
 
-            res.status(200).json({
-                success: true,
-                ...resultado
+            console.log('[relatorios/gerar] payload:', {
+                tipo: tipo,
+                hasCpfs: cpfs.length > 0,
+                cpfsCount: cpfs.length,
+                periodo: periodo,
+                filtros: filtros
             });
 
+            const resultado = await RelatorioService.gerarRelatorio({
+                tipo: tipo,
+                cpfs: cpfs,
+                periodo: periodo,
+                filtros: filtros,
+                formato: formato,
+                user_id: body.user_id || null
+            });
+
+            if (!resultado || resultado.success === false) {
+                return res.status(400).json(resultado || {
+                    success: false,
+                    error: 'Não foi possível gerar o relatório.'
+                });
+            }
+
+            return res.status(200).json(resultado);
         } catch (error) {
             console.error('Erro no controller de relatórios:', error);
-            res.status(500).json({
+            return res.status(500).json({
                 success: false,
-                error: error.message
+                error: error.message || 'Erro interno ao gerar relatório.'
             });
         }
     },
@@ -53,10 +82,8 @@ const relatoriosController = {
                 console.log(`Exemplo de ID: ${colabs[0].id}`);
             }
 
-            // --- CARREGAR DADOS AUXILIARES EM MASSA ---
             const ids = colabs.map(c => c.id);
 
-            // 1. Planos Ativos
             console.log(`Buscando planos ativos para ${ids.length} IDs...`);
             const { data: vinculos, error: linkError } = await supabase
                 .from('colaboradores_planos')
@@ -69,11 +96,9 @@ const relatoriosController = {
             }
             console.log(`Vinculos retornados: ${vinculos ? vinculos.length : 0}`);
 
-            // 2. Preços
             const { data: todosPrecos } = await supabase.from('planos_precos').select('*');
             console.log(`Preços retornados: ${todosPrecos ? todosPrecos.length : 0}`);
 
-            // Map de preços por PlanoID
             const precosPorPlano = {};
             if (todosPrecos) {
                 todosPrecos.forEach(pp => {
@@ -82,7 +107,6 @@ const relatoriosController = {
                 });
             }
 
-            // 3. Dependentes (para calcular custos)
             const { data: todosDependentes } = await supabase
                 .from('dependentes')
                 .select('*')
@@ -95,13 +119,11 @@ const relatoriosController = {
                 });
             }
 
-            // --- PROCESSAR ENRIQUECIMENTO ---
             const enrichedData = [];
 
             for (const c of colabs) {
                 const idade = benefitCalculator.calcularIdade(c.data_nascimento);
 
-                // Defaults
                 let item = {
                     ...c,
                     idade: idade,
@@ -115,9 +137,7 @@ const relatoriosController = {
                     odont_dep: 0
                 };
 
-                // Achar planos do colaborador
                 const meusVinculos = vinculos ? vinculos.filter(v => v.colaborador_id === c.id) : [];
-                // console.log(`Colab ${c.nome_completo} tem ${meusVinculos.length} vinculos`);
 
                 for (const v of meusVinculos) {
                     if (!v.plano) {
@@ -134,10 +154,9 @@ const relatoriosController = {
                     if (p.tipo === 'SAUDE') {
                         item.convenio_escolhido = p.nome;
 
-                        // Custo Titular
                         const precoTitular = benefitCalculator.encontrarPreco(precos, idade);
-
                         const faixaObj = precos.find(price => parseFloat(price.valor) === parseFloat(precoTitular));
+
                         if (faixaObj) {
                             item.faixa_etaria = faixaObj.faixa_etaria;
                         } else {
@@ -149,7 +168,6 @@ const relatoriosController = {
                         item.vl_empresa_amil = calc.parte_empresa;
                         item.vl_func_amil = calc.parte_funcionario;
 
-                        // Custo Dependentes (Iteração Manual)
                         const meusDeps = depPorColab[c.id] || [];
                         let custoDeps = 0;
                         for (const dep of meusDeps) {
@@ -171,7 +189,7 @@ const relatoriosController = {
                 enrichedData.push(item);
             }
 
-            res.json({
+            return res.json({
                 success: true,
                 colaboradores: enrichedData,
                 total: enrichedData.length
@@ -179,7 +197,7 @@ const relatoriosController = {
 
         } catch (error) {
             console.error('Erro ao buscar colaboradores com filtros:', error);
-            res.status(500).json({ success: false, error: error.message });
+            return res.status(500).json({ success: false, error: error.message });
         }
     },
 
@@ -193,14 +211,13 @@ const relatoriosController = {
             { id: 'seguros', nome: 'Seguro de Vida' },
             { id: 'planos', nome: 'Conferência Planos de Saúde' }
         ];
-        res.json({ success: true, tipos });
+        return res.json({ success: true, tipos });
     },
 
     // ===== EXPORTAR RELATÓRIO (Stub) =====
     async exportarRelatorio(req, res) {
-        // Futuro: Gerar PDF/Excel aqui
         const { relatorio_id, formato } = req.body;
-        res.json({
+        return res.json({
             success: true,
             message: 'Funcionalidade de exportação em desenvolvimento',
             download_url: null
@@ -210,7 +227,7 @@ const relatoriosController = {
     // ===== LISTAR HISTÓRICO =====
     async listarHistorico(req, res) {
         try {
-            const { tipo, limit = 50 } = req.body; // ou query params
+            const { tipo, limit = 50 } = req.body;
 
             let query = supabase
                 .from('relatorios_gerados')
@@ -225,10 +242,10 @@ const relatoriosController = {
             const { data, error } = await query;
             if (error) throw error;
 
-            res.json({ success: true, historico: data });
+            return res.json({ success: true, historico: data });
         } catch (error) {
             console.error('Erro ao listar histórico:', error);
-            res.status(500).json({ success: false, error: error.message });
+            return res.status(500).json({ success: false, error: error.message });
         }
     },
 
@@ -245,16 +262,12 @@ const relatoriosController = {
 
             if (error) throw error;
 
-            // Compatibilidade com GAS: enviar itens na raiz
             const itens = relatorio.itens || [];
 
-            // Limpeza opcional: remover itens de dentro do objeto relatorio para economizar bytes?
-            // delete relatorio.itens; 
-
-            res.json({ success: true, relatorio, itens });
+            return res.json({ success: true, relatorio, itens });
         } catch (error) {
             console.error('Erro ao obter histórico:', error);
-            res.status(500).json({ success: false, error: error.message });
+            return res.status(500).json({ success: false, error: error.message });
         }
     }
 };

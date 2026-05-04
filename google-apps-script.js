@@ -57,7 +57,9 @@ function onOpen() {
             .addItem('🎁 Benefícios Caju', 'gerarRelatorioBeneficios')
             .addItem('📊 Apuração de Variável', 'gerarRelatorioVariavel')
             .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
-            .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros'))
+            .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros')
+            .addSeparator()
+            .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
         .addSeparator()
         .addSeparator()
         .addItem('📜 Histórico de Versões', 'listarHistoricoModal') // <--- NOVO
@@ -521,6 +523,7 @@ function criarAbaRelatorio(tipo, nome, dados, periodo) {
 
     // Aplicar layout baseado no template
     aplicarLayoutRelatorio(sheet, tipo, dados);
+    return sheet.getName();
 }
 
 function aplicarLayoutRelatorio(sheet, tipo, dados) {
@@ -1728,17 +1731,181 @@ function formatarCPFParaExibicao(cpf) {
     return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
 }
 
-function atualizarDashboard() {
-    const ui = SpreadsheetApp.getUi();
-    ui.alert('🔄 Dashboard', 'Funcionalidade em desenvolvimento', ui.ButtonSet.OK);
+// Mantem apenas numeros para reaproveitar em datas, CPF e competencias.
+function somenteDigitos(valor) {
+    if (valor === null || valor === undefined) return '';
+    return String(valor).replace(/\D/g, '');
 }
 
-function abrirConfiguracoes() {
-    const ui = SpreadsheetApp.getUi();
-    ui.alert('⚙️ Configurações',
-        `URL da API: ${CONFIG.API_URL}\n\nPara alterar, edite o script.`,
-        ui.ButtonSet.OK);
+// Verifica se a combinacao dia/mes/ano existe de verdade no calendario.
+function validarPartesDataBR(dia, mes, ano) {
+    if (!dia || !mes || !ano) return false;
+    if (mes < 1 || mes > 12) return false;
+    if (dia < 1 || dia > 31) return false;
+    if (ano < 1000 || ano > 9999) return false;
+
+    const data = new Date(ano, mes - 1, dia);
+    return data.getFullYear() === ano &&
+        data.getMonth() === mes - 1 &&
+        data.getDate() === dia;
 }
+
+function montarDataBR(dia, mes, ano) {
+    return String(dia).padStart(2, '0') + '/' + String(mes).padStart(2, '0') + '/' + String(ano);
+}
+
+function montarDataISO(dia, mes, ano) {
+    return String(ano) + '-' + String(mes).padStart(2, '0') + '-' + String(dia).padStart(2, '0');
+}
+
+function extrairPartesDataBR(valor) {
+    if (valor === null || valor === undefined || valor === '') return null;
+
+    if (Object.prototype.toString.call(valor) === '[object Date]') {
+        if (isNaN(valor.getTime())) return null;
+        return {
+            dia: valor.getDate(),
+            mes: valor.getMonth() + 1,
+            ano: valor.getFullYear()
+        };
+    }
+
+    const textoOriginal = String(valor).trim();
+    if (!textoOriginal) return null;
+
+    const texto = textoOriginal.split('T')[0].split(' ')[0];
+    const somenteNums = somenteDigitos(textoOriginal);
+    let match = null;
+    let dia = 0;
+    let mes = 0;
+    let ano = 0;
+
+    if (/^\d{8}$/.test(somenteNums)) {
+        dia = parseInt(somenteNums.substring(0, 2), 10);
+        mes = parseInt(somenteNums.substring(2, 4), 10);
+        ano = parseInt(somenteNums.substring(4, 8), 10);
+    } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(texto)) {
+        match = texto.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+        dia = parseInt(match[1], 10);
+        mes = parseInt(match[2], 10);
+        ano = parseInt(match[3], 10);
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+        match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        ano = parseInt(match[1], 10);
+        mes = parseInt(match[2], 10);
+        dia = parseInt(match[3], 10);
+    } else {
+        return null;
+    }
+
+    if (!validarPartesDataBR(dia, mes, ano)) return null;
+
+    return { dia: dia, mes: mes, ano: ano };
+}
+
+// Normaliza qualquer entrada valida para exibicao brasileira DD/MM/AAAA.
+function normalizarDataBR(valor) {
+    const partes = extrairPartesDataBR(valor);
+    if (!partes) return '';
+    return montarDataBR(partes.dia, partes.mes, partes.ano);
+}
+
+// Converte a interpretacao brasileira da data para ISO usado pela API.
+function converterDataBRParaISO(valor) {
+    const partes = extrairPartesDataBR(valor);
+    if (!partes) return null;
+    return montarDataISO(partes.dia, partes.mes, partes.ano);
+}
+
+// Faz o parse de competencia MM/AAAA ou MMAAAA com validacao simples.
+function parseCompetenciaBR(valor) {
+    if (valor === null || valor === undefined || valor === '') return null;
+
+    const texto = String(valor).trim();
+    if (!texto) return null;
+
+    const somenteNums = somenteDigitos(texto);
+    let mes = 0;
+    let ano = 0;
+    let match = null;
+
+    if (/^\d{6}$/.test(somenteNums)) {
+        mes = parseInt(somenteNums.substring(0, 2), 10);
+        ano = parseInt(somenteNums.substring(2, 6), 10);
+    } else if (/^\d{1,2}[\/-]\d{4}$/.test(texto)) {
+        match = texto.match(/^(\d{1,2})[\/-](\d{4})$/);
+        mes = parseInt(match[1], 10);
+        ano = parseInt(match[2], 10);
+    } else {
+        return null;
+    }
+
+    if (mes < 1 || mes > 12) return null;
+    if (ano < 1000 || ano > 9999) return null;
+
+    return { mes: mes, ano: ano };
+}
+
+function normalizarCompetenciaBR(valor) {
+    const competencia = parseCompetenciaBR(valor);
+    if (!competencia) return '';
+    return String(competencia.mes).padStart(2, '0') + '/' + String(competencia.ano);
+}
+
+function valorDataEmBranco(valor) {
+    return valor === null || valor === undefined || String(valor).trim() === '';
+}
+
+// Converte datas opcionais/obrigatorias para ISO sem deixar string invalida passar.
+function validarEConverterDataParaPayload(valor, nomeCampo, obrigatorio) {
+    if (valorDataEmBranco(valor)) {
+        if (obrigatorio) {
+            throw new Error('Preencha ' + nomeCampo + '.');
+        }
+        return null;
+    }
+
+    const iso = converterDataBRParaISO(valor);
+    if (!iso) {
+        throw new Error(nomeCampo + ' invalida. Use DDMMAAAA ou DD/MM/AAAA.');
+    }
+
+    return iso;
+}
+
+function normalizarPayloadColaborador(colaborador) {
+    const payload = JSON.parse(JSON.stringify(colaborador || {}));
+
+    if (!valorDataEmBranco(payload.data_nascimento)) {
+        payload.data_nascimento = validarEConverterDataParaPayload(payload.data_nascimento, 'a data de nascimento', false);
+    } else {
+        delete payload.data_nascimento;
+    }
+
+    if (!valorDataEmBranco(payload.data_admissao)) {
+        payload.data_admissao = validarEConverterDataParaPayload(payload.data_admissao, 'a data de admissao', false);
+    } else {
+        delete payload.data_admissao;
+    }
+
+    return payload;
+}
+
+function normalizarPayloadDependente(dependente) {
+    const payload = JSON.parse(JSON.stringify(dependente || {}));
+
+    if (!valorDataEmBranco(payload.data_nasc)) {
+        payload.data_nasc = validarEConverterDataParaPayload(payload.data_nasc, 'a data de nascimento do dependente', false);
+    } else {
+        delete payload.data_nasc;
+    }
+
+    return payload;
+}
+
+
+
+
 // =====================================================
 // FUNÇÕES FALTANTES - ADICIONE NO FINAL DO CÓDIGO
 // =====================================================
@@ -3925,4 +4092,1308 @@ function abrirConfiguracoes() {
         .setWidth(400)
         .setHeight(300);
     ui.showModalDialog(html, 'Configurações');
+}
+
+// =====================================================
+// RELATÓRIOS AVANÇADOS (PDF / EMAIL / FILTROS)
+// =====================================================
+
+function mostrarModalRelatoriosAvancados() {
+    const abas = SpreadsheetApp.getActiveSpreadsheet().getSheets()
+        .map(s => s.getName())
+        .filter(nome => nome.includes('Folha') || nome.includes('Variável') || nome.includes('Apontamentos') || nome.includes('Benefícios'));
+
+    const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; padding: 20px; color: #333; }
+      h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #ccc; padding-bottom: 5px; }
+      label { font-weight: bold; display: block; margin-top: 15px; }
+      select, input { padding: 8px; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; margin-top: 20px; font-weight: bold; width: 100%; transition: 0.2s;}
+      .btn-pdf { background-color: #d93025; }
+      .btn-pdf:hover { background-color: #b32a20; }
+      .btn-email { background-color: #1a73e8; }
+      .btn-email:hover { background-color: #1557b0; }
+      .tabs { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 15px; }
+      .tab { padding: 8px 15px; cursor: pointer; border: 1px solid transparent; border-bottom: none; }
+      .tab.active { background: #f1f3f4; border-color: #ccc; font-weight: bold; border-radius: 4px 4px 0 0; }
+      .content { display: none; }
+      .content.active { display: block; }
+    </style>
+    <h2>📑 Central de Relatórios</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('export')">💾 Exportar PDF/Excel</div>
+      <div class="tab" onclick="switchTab('email')">✉️ Enviar por Email</div>
+      <div class="tab" onclick="switchTab('filtros')">🔍 Gerar com Filtros</div>
+    </div>
+
+    <div id="export" class="content active">
+      <p>Selecione uma aba gerada no Sheets para exportá-la para PDF direto no seu Google Drive:</p>
+      <label>Aba de Relatório:</label>
+      <select id="aba_pdf">
+        ${abas.map(a => '<option value="' + a + '">' + a + '</option>').join('')}
+      </select>
+      <button class="btn btn-pdf" onclick="exportarPDF(this)">📄 Exportar PDF (Google Drive)</button>
+    </div>
+
+    <div id="email" class="content">
+      <p>Envie o relatório em PDF atual anexado por email:</p>
+      <label>Aba a converter (Anexo):</label>
+      <select id="aba_email">
+        ${abas.map(a => '<option value="' + a + '">' + a + '</option>').join('')}
+      </select>
+      <label>Destinatários (separado por vírgula):</label>
+      <input type="text" id="dest" placeholder="email@empresa.com">
+      <label>Mensagem HTML:</label>
+      <input type="text" id="msg" value="Segue em anexo o relatório solicitado.">
+      <button class="btn btn-email" onclick="enviarEmail(this)">✉️ Enviar Email HTML + PDF</button>
+    </div>
+
+    <div id="filtros" class="content">
+      <p><i>Nota: Para gerar via filtros de sistema, selecione abaixo e clique em Gerar (Aba Nova).</i></p>
+      <label>Tipo de Relatório:</label>
+      <select id="f_tipo"><option value="folha">Folha</option><option value="variavel">Variável</option></select>
+      <label>Departamento:</label>
+      <select id="f_dpto"><option value="">Todos</option><option value="Comercial">Comercial</option><option value="TI">TI</option></select>
+      <label>Status:</label>
+      <select id="f_status"><option value="">Qualquer</option><option value="pago">Pago</option><option value="pendente">Pendente</option></select>
+      <button class="btn btn-email" onclick="alert('Funcionalidade conectada à API em breve!')" style="background:#0f9d58">📊 Executar Filtros</button>
+    </div>
+
+    <script>
+      function switchTab(id) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById(id).classList.add('active');
+      }
+
+      function exportarPDF(btn) {
+        const aba = document.getElementById('aba_pdf').value;
+        if(!aba) return alert('Selecione uma aba');
+        btn.innerText = "⏳ Gerando..."; btn.disabled = true;
+        google.script.run
+          .withSuccessHandler(res => {
+              btn.innerText = "📄 Exportar PDF (Google Drive)"; btn.disabled = false;
+              if (res && res.success) { alert('✅ Salvo no Drive!\\nUpload completado.'); }
+              else { alert('❌ Erro: ' + res.error); }
+          })
+          .withFailureHandler(err => { btn.innerText = "📄 Exportar PDF"; btn.disabled = false; alert('Erro Timeout: ' + err.message); })
+          .exportarAbaParaPDF(aba);
+      }
+
+      function enviarEmail(btn) {
+        const email = document.getElementById('dest').value;
+        const aba = document.getElementById('aba_email').value;
+        const msg = document.getElementById('msg').value;
+        if(!email || !aba) {
+            alert('Preencha os campos obrigatórios (Email e Aba)');
+            return;
+        }
+        
+        btn.innerText = "⏳ Enviando email..."; btn.disabled = true;
+        
+        google.script.run
+          .withSuccessHandler(res => {
+              btn.innerText = "✉️ Enviar Email HTML + PDF"; btn.disabled = false;
+              if (res && res.success) alert('✅ Email enviado com sucesso!');
+              else alert('❌ Falha ao Enviar: ' + res.error);
+          })
+          .withFailureHandler(err => { btn.innerText = "✉️ Enviar Email HTML + PDF"; btn.disabled = false; alert('Erro de Conexão: ' + err.message); })
+          .enviarRelatorioPorEmail(aba, email, 'Novo Relatório Gerado', msg);
+      }
+    </script>
+    `).setWidth(450).setHeight(550);
+
+    SpreadsheetApp.getUi().showModalDialog(html, '⚙️ Relatórios Avançados');
+}
+
+function exportarAbaParaPDF(nomeAba) {
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getSheetByName(nomeAba);
+        if (!sheet) throw new Error("Aba não encontrada: " + nomeAba);
+
+        const spreadsheetId = ss.getId();
+        const sheetId = sheet.getSheetId();
+
+        const token = ScriptApp.getOAuthToken();
+        const url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' +
+            'exportFormat=pdf&format=pdf' +
+            '&size=A4' +
+            '&portrait=false' +
+            '&fitw=true' +
+            '&sheetnames=false&printtitle=false&pagenumbers=true' +
+            '&gridlines=false' +
+            '&fzr=false' +
+            '&gid=' + sheetId;
+
+        const response = UrlFetchApp.fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + token },
+            muteHttpExceptions: true
+        });
+
+        if (response.getResponseCode() !== 200) {
+            throw new Error("HTTP Erro (" + response.getResponseCode() + "): Não autorizado. Verifique os scopes oauth2.");
+        }
+
+        const blob = response.getBlob().setName(nomeAba + ' - Relatorio.pdf');
+
+        const file = DriveApp.createFile(blob);
+
+        return { success: true, url: file.getUrl(), id: file.getId() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function enviarRelatorioPorEmail(nomeAba, emailsDestino, assunto, HTMLmsg) {
+    try {
+        const resPdf = exportarAbaParaPDF(nomeAba);
+        if (!resPdf.success) throw new Error("Não foi possível gerar PDF: " + resPdf.error);
+
+        const file = DriveApp.getFileById(resPdf.id);
+
+        const htmlTemplate = `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+              <h2>Olá!</h2>
+              <p>${HTMLmsg}</p>
+              <br><hr>
+              <p style="font-size: 11px; color: #888;">E-mail gerado automaticamente pelo Sistema RH.</p>
+            </div>
+        `;
+
+        MailApp.sendEmail(emailsDestino, assunto, HTMLmsg, {
+            htmlBody: htmlTemplate,
+            attachments: [file.getAs(MimeType.PDF)]
+        });
+
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+// =====================================================
+// EXCLUSÃO DE COLABORADORES
+// =====================================================
+
+function excluirSelecionados() {
+    const ui = SpreadsheetApp.getUi();
+    const cpfs = obterCPFsSelecionados();
+
+    if (cpfs.length === 0) {
+        ui.alert('⚠️ Nenhum colaborador selecionado', 'Marque o checkbox de pelo menos UM colaborador.', ui.ButtonSet.OK);
+        return;
+    }
+
+    // Confirmar exclusão
+    const confirmMsg = cpfs.length === 1
+        ? 'Tem certeza que deseja excluir este colaborador?'
+        : `Tem certeza que deseja excluir ${cpfs.length} colaboradores selecionados?`;
+
+    const response = ui.alert('⚠️ Confirmar Exclusão', confirmMsg + '\n\nEsta ação não pode ser desfeita!', ui.ButtonSet.YES_NO);
+
+    if (response == ui.Button.NO) return;
+
+    // Excluir cada colaborador
+    let excluidos = 0;
+    let erros = 0;
+    let mensagensErro = [];
+
+    for (let i = 0; i < cpfs.length; i++) {
+        const cpf = cpfs[i];
+        try {
+            const url = CONFIG.API_URL + '/colaboradores/' + cpf;
+            const options = {
+                method: 'delete',
+                muteHttpExceptions: true
+            };
+
+            const response = UrlFetchApp.fetch(url, options);
+            const resultado = JSON.parse(response.getContentText());
+
+            if (resultado.success) {
+                excluidos++;
+            } else {
+                erros++;
+                mensagensErro.push(`CPF ${cpf}: ${resultado.error}`);
+            }
+        } catch (erro) {
+            erros++;
+            mensagensErro.push(`CPF ${cpf}: ${erro.message}`);
+        }
+    }
+
+    // Resultado final
+    if (excluidos > 0) {
+        ui.alert('✅ Exclusão Concluída',
+            `${excluidos} colaborador(es) excluído(s) com sucesso.` +
+            (erros > 0 ? `\n\n⚠️ ${erros} falha(s): ${mensagensErro.join('; ')}` : ''),
+            ui.ButtonSet.OK);
+
+        // Atualizar lista
+        buscarColaboradoresAPI({});
+    } else {
+        ui.alert('❌ Erro na Exclusão',
+            `Nenhum colaborador pôde ser excluído.\n\nErros: ${mensagensErro.join('; ')}`,
+            ui.ButtonSet.OK);
+    }
+}
+
+// =====================================================
+// RELATORIOS AVANCADOS - AJUSTES DE PDF/EMAIL
+// =====================================================
+
+function mostrarModalRelatoriosAvancados() {
+    const abas = SpreadsheetApp.getActiveSpreadsheet().getSheets()
+        .map(function (s) { return s.getName(); })
+        .filter(function (nome) {
+            return nome.indexOf('Folha') !== -1 ||
+                nome.indexOf('Vari') !== -1 ||
+                nome.indexOf('Apontamentos') !== -1 ||
+                nome.indexOf('Benef') !== -1;
+        });
+
+    const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; padding: 20px; color: #333; }
+      h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #ccc; padding-bottom: 5px; }
+      label { font-weight: bold; display: block; margin-top: 15px; }
+      select, input { padding: 8px; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; margin-top: 20px; font-weight: bold; width: 100%; transition: 0.2s; }
+      .btn-pdf { background-color: #d93025; }
+      .btn-pdf:hover { background-color: #b32a20; }
+      .btn-email { background-color: #1a73e8; }
+      .btn-email:hover { background-color: #1557b0; }
+      .tabs { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 15px; }
+      .tab { padding: 8px 15px; cursor: pointer; border: 1px solid transparent; border-bottom: none; }
+      .tab.active { background: #f1f3f4; border-color: #ccc; font-weight: bold; border-radius: 4px 4px 0 0; }
+      .content { display: none; }
+      .content.active { display: block; }
+    </style>
+    <h2>Central de Relatorios</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('export')">Exportar PDF/Excel</div>
+      <div class="tab" onclick="switchTab('email')">Enviar por Email</div>
+      <div class="tab" onclick="switchTab('filtros')">Gerar com Filtros</div>
+    </div>
+
+    <div id="export" class="content active">
+      <p>Selecione uma aba gerada no Sheets para exporta-la para PDF direto no seu Google Drive:</p>
+      <label>Aba de Relatorio:</label>
+      <select id="aba_pdf">
+        ${abas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('')}
+      </select>
+      <button class="btn btn-pdf" onclick="exportarPDF(this)">Exportar PDF (Google Drive)</button>
+    </div>
+
+    <div id="email" class="content">
+      <p>Envie o relatorio em PDF atual anexado por email:</p>
+      <label>Aba a converter (Anexo):</label>
+      <select id="aba_email">
+        ${abas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('')}
+      </select>
+      <label>Destinatarios (separado por virgula ou ponto e virgula):</label>
+      <input type="text" id="dest" placeholder="email@empresa.com">
+      <label>Mensagem HTML:</label>
+      <input type="text" id="msg" value="Segue em anexo o relatorio solicitado.">
+      <button class="btn btn-email" onclick="enviarEmail(this)">Enviar Email HTML + PDF</button>
+    </div>
+
+    <div id="filtros" class="content">
+      <p><i>Nota: Para gerar via filtros de sistema, selecione abaixo e clique em Gerar (Aba Nova).</i></p>
+      <label>Tipo de Relatorio:</label>
+      <select id="f_tipo"><option value="folha">Folha</option><option value="variavel">Variavel</option></select>
+      <label>Departamento:</label>
+      <select id="f_dpto"><option value="">Todos</option><option value="Comercial">Comercial</option><option value="TI">TI</option></select>
+      <label>Status:</label>
+      <select id="f_status"><option value="">Qualquer</option><option value="pago">Pago</option><option value="pendente">Pendente</option></select>
+      <button class="btn btn-email" onclick="alert('Funcionalidade conectada a API em breve!')" style="background:#0f9d58">Executar Filtros</button>
+    </div>
+
+    <script>
+      function switchTab(id) {
+        document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+        document.querySelectorAll('.content').forEach(function (c) { c.classList.remove('active'); });
+        event.target.classList.add('active');
+        document.getElementById(id).classList.add('active');
+      }
+
+      function exportarPDF(btn) {
+        var aba = document.getElementById('aba_pdf').value;
+        if (!aba) return alert('Selecione uma aba');
+        btn.innerText = 'Gerando...';
+        btn.disabled = true;
+        google.script.run
+          .withSuccessHandler(function (res) {
+              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.disabled = false;
+              if (res && res.success) { alert('Salvo no Drive!\\nUpload completado.'); }
+              else { alert('Erro: ' + res.error); }
+          })
+          .withFailureHandler(function (err) {
+              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.disabled = false;
+              alert('Erro de conexao: ' + err.message);
+          })
+          .exportarAbaParaPDF(aba);
+      }
+
+      function enviarEmail(btn) {
+        var email = document.getElementById('dest').value;
+        var aba = document.getElementById('aba_email').value;
+        var msg = document.getElementById('msg').value;
+        if (!email || !aba) {
+            alert('Preencha os campos obrigatorios (Email e Aba)');
+            return;
+        }
+
+        btn.innerText = 'Enviando email...';
+        btn.disabled = true;
+
+        google.script.run
+          .withSuccessHandler(function (res) {
+              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.disabled = false;
+              if (res && res.success) alert('\u2705 Email enviado com sucesso!');
+              else alert('Falha ao Enviar: ' + (res && res.error ? res.error : 'Erro desconhecido ao enviar o email.'));
+          })
+          .withFailureHandler(function (err) {
+              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.disabled = false;
+              alert('Erro de conexao: ' + err.message);
+          })
+          .enviarRelatorioPorEmail(aba, email, 'Novo Relatorio Gerado', msg);
+      }
+    </script>
+    `).setWidth(450).setHeight(550);
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Relatorios Avancados');
+}
+
+function gerarPdfBlobDaAba(nomeAba) {
+    try {
+        if (!nomeAba || String(nomeAba).trim() === '') {
+            throw new Error('Informe o nome da aba para gerar o PDF.');
+        }
+
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const nomeAbaNormalizado = String(nomeAba).trim();
+        const sheet = ss.getSheetByName(nomeAbaNormalizado);
+        if (!sheet) {
+            throw new Error('Aba nao encontrada: ' + nomeAbaNormalizado);
+        }
+
+        const spreadsheetId = ss.getId();
+        const sheetId = sheet.getSheetId();
+        const token = ScriptApp.getOAuthToken();
+        const url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' +
+            'exportFormat=pdf&format=pdf' +
+            '&size=A4' +
+            '&portrait=false' +
+            '&fitw=true' +
+            '&sheetnames=false&printtitle=false&pagenumbers=true' +
+            '&gridlines=false' +
+            '&fzr=false' +
+            '&gid=' + sheetId;
+
+        // Gera o PDF diretamente da aba sem criar arquivo no Drive.
+        const response = UrlFetchApp.fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + token },
+            muteHttpExceptions: true
+        });
+
+        if (response.getResponseCode() !== 200) {
+            throw new Error('Falha ao gerar PDF da aba "' + nomeAbaNormalizado + '". HTTP ' + response.getResponseCode() + '.');
+        }
+
+        const blob = response.getBlob().setName(nomeAbaNormalizado + ' - Relatorio.pdf');
+        return { success: true, blob: blob };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function exportarAbaParaPDF(nomeAba) {
+    try {
+        const resPdf = gerarPdfBlobDaAba(nomeAba);
+        if (!resPdf.success) {
+            return resPdf;
+        }
+
+        const file = DriveApp.createFile(resPdf.blob);
+        return { success: true, url: file.getUrl(), id: file.getId() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function enviarRelatorioPorEmail(nomeAba, emailsDestino, assunto, HTMLmsg) {
+    try {
+        const abaNormalizada = nomeAba ? String(nomeAba).trim() : '';
+        if (abaNormalizada === '') {
+            throw new Error('Selecione a aba que sera enviada por email.');
+        }
+
+        const emailsInformados = emailsDestino ? String(emailsDestino).split(/[;,]/) : [];
+        const emailsValidos = [];
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        for (let i = 0; i < emailsInformados.length; i++) {
+            const emailAtual = String(emailsInformados[i]).trim();
+            if (emailAtual === '') {
+                return { success: false, error: 'E-mail de destino invalido: (vazio)' };
+            }
+            if (!emailRegex.test(emailAtual)) {
+                return { success: false, error: 'E-mail de destino invalido: ' + emailAtual };
+            }
+            emailsValidos.push(emailAtual);
+        }
+
+        if (emailsValidos.length === 0) {
+            throw new Error('Informe ao menos um e-mail de destino valido.');
+        }
+
+        const assuntoFinal = assunto && String(assunto).trim() !== ''
+            ? String(assunto).trim()
+            : 'Relatorio Sistema RH';
+        const mensagemFinal = HTMLmsg && String(HTMLmsg).trim() !== ''
+            ? String(HTMLmsg).trim()
+            : 'Segue em anexo o relatorio solicitado.';
+
+        const resPdf = gerarPdfBlobDaAba(abaNormalizada);
+        if (!resPdf.success) {
+            throw new Error('Nao foi possivel gerar o PDF: ' + resPdf.error);
+        }
+
+        const htmlTemplate = `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+              <h2>Ola!</h2>
+              <p>${mensagemFinal}</p>
+              <br><hr>
+              <p style="font-size: 11px; color: #888;">E-mail gerado automaticamente pelo Sistema RH.</p>
+            </div>
+        `;
+
+        const plainTextBody = mensagemFinal.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+        MailApp.sendEmail({
+            to: emailsValidos.join(','),
+            subject: assuntoFinal,
+            body: plainTextBody || 'Segue em anexo o relatorio solicitado.',
+            htmlBody: htmlTemplate,
+            attachments: [resPdf.blob]
+        });
+
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function testarPermissoesEmailRelatorio() {
+    const ui = SpreadsheetApp.getUi();
+
+    try {
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const nomeAba = ss.getActiveSheet().getName();
+        const resPdf = gerarPdfBlobDaAba(nomeAba);
+
+        if (!resPdf.success) {
+            throw new Error(resPdf.error);
+        }
+
+        Logger.log('Quota diaria restante de email: ' + MailApp.getRemainingDailyQuota());
+        ui.alert('Permissoes de PDF/e-mail verificadas. Se foi solicitada autorizacao, aceite e execute novamente.');
+    } catch (e) {
+        ui.alert('Erro ao verificar permissoes de PDF/e-mail: ' + e.message);
+    }
+}
+
+// =====================================================
+// OVERRIDES FINAIS - AUTORIZACAO DE PDF/E-MAIL
+// =====================================================
+
+function onOpen() {
+    const ui = SpreadsheetApp.getUi();
+    ui.createMenu('🔄 Sistema RH')
+        .addItem('📈 Dashboard Gerencial RH', 'abrirDashboardModal')
+        .addSeparator()
+        .addSubMenu(ui.createMenu('👥 Colaboradores')
+            .addItem('🔍 Buscar Colaborador', 'buscarColaboradorModal')
+            .addItem('➕ Novo Colaborador', 'novoColaboradorModal')
+            .addItem('📝 Editar Selecionados', 'editarSelecionados')
+            .addItem('🗑️ Excluir Selecionados', 'excluirSelecionados'))
+        .addSeparator()
+        .addSubMenu(ui.createMenu('📝 Lançamentos')
+            .addItem('💰 Lançar Folha', 'lancarFolha')
+            .addItem('🚀 Enviar Folha para Sistema', 'enviarFolhaParaAPI')
+            .addSeparator()
+            .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
+            .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
+            .addSeparator()
+            .addItem('📊 Lançar Variável', 'lancarVariavel')
+            .addItem('🚀 Enviar Variável', 'enviarVariavelParaAPI')
+            .addSeparator()
+            .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos')
+            .addItem('🚀 Enviar Apontamentos', 'enviarApontamentosParaAPI'))
+        .addSeparator()
+        .addSubMenu(ui.createMenu('📄 Relatórios')
+            .addItem('💰 Folha de Pagamento', 'gerarRelatorioFolha')
+            .addItem('🎁 Benefícios Caju', 'gerarRelatorioBeneficios')
+            .addItem('📊 Apuração de Variável', 'gerarRelatorioVariavel')
+            .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
+            .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros')
+            .addSeparator()
+            .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
+        .addSeparator()
+        .addSeparator()
+        .addItem('📜 Histórico de Versões', 'listarHistoricoModal')
+        .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
+        .addItem('⚙️ Configurações', 'abrirConfiguracoes')
+        .addItem('🔐 Autorizar PDF/E-mail', 'autorizarPermissoesEmailRelatorio')
+        .addItem('🧪 Diagnosticar PDF/E-mail', 'diagnosticarEmailRelatorio')
+        .addToUi();
+}
+
+function ehErroPermissaoEmailRelatorio(mensagem) {
+    var texto = String(mensagem || '').toLowerCase();
+    return texto.indexOf('script.send_mail') !== -1 ||
+        texto.indexOf('mailapp.sendemail') !== -1 ||
+        texto.indexOf('permissions') !== -1 ||
+        texto.indexOf('permissões') !== -1 ||
+        texto.indexOf('permissoes') !== -1;
+}
+
+function montarMensagemPermissaoEmailRelatorio(mensagem) {
+    return 'Permissão de envio de e-mail ainda não autorizada. Abra o Apps Script, execute a função autorizarPermissoesEmailRelatorio e aceite a autorização do Google. Depois recarregue a planilha e tente novamente. Detalhe técnico: ' + mensagem;
+}
+
+function enviarRelatorioPorEmail(nomeAba, emailsDestino, assunto, HTMLmsg) {
+    try {
+        const abaNormalizada = nomeAba ? String(nomeAba).trim() : '';
+        if (abaNormalizada === '') {
+            throw new Error('Selecione a aba que será enviada por email.');
+        }
+
+        const emailsInformados = emailsDestino ? String(emailsDestino).split(/[;,]/) : [];
+        const emailsValidos = [];
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        for (let i = 0; i < emailsInformados.length; i++) {
+            const emailAtual = String(emailsInformados[i]).trim();
+            if (emailAtual === '') {
+                return { success: false, error: 'E-mail de destino inválido: (vazio)' };
+            }
+            if (!emailRegex.test(emailAtual)) {
+                return { success: false, error: 'E-mail de destino inválido: ' + emailAtual };
+            }
+            emailsValidos.push(emailAtual);
+        }
+
+        if (emailsValidos.length === 0) {
+            throw new Error('Informe ao menos um e-mail de destino válido.');
+        }
+
+        const assuntoFinal = assunto && String(assunto).trim() !== ''
+            ? String(assunto).trim()
+            : 'Relatório Sistema RH';
+        const mensagemFinal = HTMLmsg && String(HTMLmsg).trim() !== ''
+            ? String(HTMLmsg).trim()
+            : 'Segue em anexo o relatório solicitado.';
+
+        const resPdf = gerarPdfBlobDaAba(abaNormalizada);
+        if (!resPdf.success) {
+            throw new Error('Não foi possível gerar o PDF: ' + resPdf.error);
+        }
+
+        const htmlTemplate = `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+              <h2>Olá!</h2>
+              <p>${mensagemFinal}</p>
+              <br><hr>
+              <p style="font-size: 11px; color: #888;">E-mail gerado automaticamente pelo Sistema RH.</p>
+            </div>
+        `;
+
+        const plainTextBody = mensagemFinal.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+        MailApp.sendEmail({
+            to: emailsValidos.join(','),
+            subject: assuntoFinal,
+            body: plainTextBody || 'Segue em anexo o relatório solicitado.',
+            htmlBody: htmlTemplate,
+            attachments: [resPdf.blob]
+        });
+
+        return { success: true };
+    } catch (e) {
+        if (ehErroPermissaoEmailRelatorio(e.message)) {
+            return {
+                success: false,
+                error: montarMensagemPermissaoEmailRelatorio(e.message)
+            };
+        }
+
+        return { success: false, error: e.message };
+    }
+}
+
+function autorizarPermissoesEmailRelatorio() {
+    const ui = SpreadsheetApp.getUi();
+
+    try {
+        // Força autorização do escopo de envio de e-mail.
+        const quota = MailApp.getRemainingDailyQuota();
+
+        // Força autorização de leitura da planilha atual.
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        const sheet = ss.getActiveSheet();
+
+        // Força autorização de requisição externa usada na geração do PDF.
+        const token = ScriptApp.getOAuthToken();
+
+        // Força autorização do Drive usada no recurso de exportar PDF para o Drive.
+        DriveApp.getRootFolder();
+
+        Logger.log('Quota diária restante de e-mail: ' + quota);
+        Logger.log('Planilha ativa: ' + ss.getName());
+        Logger.log('Aba ativa: ' + sheet.getName());
+        Logger.log('Token OAuth disponível: ' + (token ? 'SIM' : 'NÃO'));
+
+        ui.alert(
+            '✅ Permissões verificadas',
+            'As permissões de PDF/e-mail foram verificadas com sucesso.\n\nQuota diária restante de e-mail: ' + quota,
+            ui.ButtonSet.OK
+        );
+
+        return { success: true, quota: quota };
+    } catch (e) {
+        Logger.log('Erro ao autorizar permissões de e-mail/PDF: ' + e.message);
+
+        ui.alert(
+            '❌ Permissão pendente',
+            'Não foi possível verificar as permissões de e-mail/PDF.\n\nErro: ' + e.message + '\n\nExecute esta função pelo editor do Apps Script e aceite a autorização solicitada pelo Google.',
+            ui.ButtonSet.OK
+        );
+
+        return { success: false, error: e.message };
+    }
+}
+
+function diagnosticarEmailRelatorio() {
+    const ui = SpreadsheetApp.getUi();
+    const logs = [];
+
+    try {
+        logs.push('Iniciando diagnóstico de e-mail/PDF...');
+
+        const quota = MailApp.getRemainingDailyQuota();
+        logs.push('MailApp OK. Quota restante: ' + quota);
+
+        const ss = SpreadsheetApp.getActiveSpreadsheet();
+        logs.push('Spreadsheet OK: ' + ss.getName());
+
+        const sheet = ss.getActiveSheet();
+        logs.push('Aba ativa OK: ' + sheet.getName());
+
+        const token = ScriptApp.getOAuthToken();
+        logs.push('OAuth token OK: ' + (token ? 'SIM' : 'NÃO'));
+
+        try {
+            DriveApp.getRootFolder();
+            logs.push('DriveApp OK.');
+        } catch (driveErr) {
+            logs.push('DriveApp FALHOU: ' + driveErr.message);
+        }
+
+        Logger.log(logs.join('\n'));
+
+        ui.alert(
+            '✅ Diagnóstico concluído',
+            logs.join('\n'),
+            ui.ButtonSet.OK
+        );
+
+        return { success: true, logs: logs };
+    } catch (e) {
+        logs.push('ERRO: ' + e.message);
+        Logger.log(logs.join('\n'));
+
+        ui.alert(
+            '❌ Diagnóstico falhou',
+            logs.join('\n') + '\n\nSe o erro mencionar script.send_mail, falta autorizar o escopo de envio de e-mail.',
+            ui.ButtonSet.OK
+        );
+
+        return { success: false, error: e.message, logs: logs };
+    }
+}
+
+function testarPermissoesEmailRelatorio() {
+    return autorizarPermissoesEmailRelatorio();
+}
+
+// =====================================================
+// OVERRIDES FINAIS - RELATORIOS AVANCADOS COM FILTROS
+// =====================================================
+
+function mostrarModalRelatoriosAvancados() {
+    const abas = SpreadsheetApp.getActiveSpreadsheet().getSheets()
+        .map(function (s) { return s.getName(); })
+        .filter(function (nome) {
+            return nome.indexOf('Folha') !== -1 ||
+                nome.indexOf('Vari') !== -1 ||
+                nome.indexOf('Apontamentos') !== -1 ||
+                nome.indexOf('Benef') !== -1 ||
+                nome.indexOf('Seguro') !== -1;
+        });
+
+    const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: 'Segoe UI', sans-serif; padding: 20px; color: #333; }
+      h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #ccc; padding-bottom: 5px; }
+      label { font-weight: bold; display: block; margin-top: 15px; }
+      select, input { padding: 8px; width: 100%; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      .btn { padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; color: white; margin-top: 20px; font-weight: bold; width: 100%; transition: 0.2s; }
+      .btn-pdf { background-color: #d93025; }
+      .btn-pdf:hover { background-color: #b32a20; }
+      .btn-email { background-color: #1a73e8; }
+      .btn-email:hover { background-color: #1557b0; }
+      .btn-filtros { background-color: #0f9d58; }
+      .btn-filtros:hover { background-color: #0b8043; }
+      .tabs { display: flex; border-bottom: 1px solid #ccc; margin-bottom: 15px; }
+      .tab { padding: 8px 15px; cursor: pointer; border: 1px solid transparent; border-bottom: none; }
+      .tab.active { background: #f1f3f4; border-color: #ccc; font-weight: bold; border-radius: 4px 4px 0 0; }
+      .content { display: none; }
+      .content.active { display: block; }
+      .resultado { margin-top: 15px; padding: 10px 12px; border-radius: 4px; display: none; white-space: pre-line; }
+      .resultado.info { display: block; background: #e8f0fe; color: #1557b0; }
+      .resultado.success { display: block; background: #e6f4ea; color: #137333; }
+      .resultado.error { display: block; background: #fce8e6; color: #c5221f; }
+    </style>
+    <h2>Central de Relatórios</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('export', event)">Exportar PDF/Excel</div>
+      <div class="tab" onclick="switchTab('email', event)">Enviar por Email</div>
+      <div class="tab" onclick="switchTab('filtros', event)">Gerar com Filtros</div>
+    </div>
+
+    <div id="export" class="content active">
+      <p>Selecione uma aba gerada no Sheets para exportá-la para PDF direto no seu Google Drive:</p>
+      <label>Aba de Relatório:</label>
+      <select id="aba_pdf">
+        ${abas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('')}
+      </select>
+      <button class="btn btn-pdf" onclick="exportarPDF(this)">Exportar PDF (Google Drive)</button>
+    </div>
+
+    <div id="email" class="content">
+      <p>Envie o relatório em PDF atual anexado por email:</p>
+      <label>Aba a converter (Anexo):</label>
+      <select id="aba_email">
+        ${abas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('')}
+      </select>
+      <label>Destinatários (separado por vírgula ou ponto e vírgula):</label>
+      <input type="text" id="dest" placeholder="email@empresa.com">
+      <label>Mensagem HTML:</label>
+      <input type="text" id="msg" value="Segue em anexo o relatório solicitado.">
+      <button class="btn btn-email" onclick="enviarEmail(this)">Enviar Email HTML + PDF</button>
+    </div>
+
+    <div id="filtros" class="content">
+      <p><i>Selecione os filtros desejados e gere uma nova aba diretamente pela API do sistema.</i></p>
+      <label>Tipo de Relatório:</label>
+      <select id="f_tipo">
+        <option value="folha">Folha</option>
+        <option value="beneficios">Benefícios</option>
+        <option value="variavel">Variável</option>
+        <option value="apontamentos">Apontamentos</option>
+        <option value="seguros">Seguros</option>
+      </select>
+
+      <label>Competência:</label>
+      <input type="text" id="f_competencia" placeholder="MM/AAAA ou MMAAAA" inputmode="numeric">
+
+      <label>Departamento:</label>
+      <select id="f_dpto">
+        <option value="">Todos</option>
+        <option value="Comercial">Comercial</option>
+        <option value="RH">RH</option>
+        <option value="Financeiro">Financeiro</option>
+        <option value="Vendas">Vendas</option>
+        <option value="TI">TI</option>
+        <option value="Operações">Operações</option>
+      </select>
+
+      <label>Status:</label>
+      <select id="f_status">
+        <option value="">Qualquer</option>
+        <option value="pago">Pago</option>
+        <option value="pendente">Pendente</option>
+        <option value="ativo">Ativo</option>
+        <option value="inativo">Inativo</option>
+      </select>
+
+      <button class="btn btn-filtros" onclick="executarFiltrosRelatorio(this)">📊 Executar Filtros</button>
+      <div id="f_resultado" class="resultado"></div>
+    </div>
+
+    <script>
+      function switchTab(id, evt) {
+        document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+        document.querySelectorAll('.content').forEach(function (c) { c.classList.remove('active'); });
+        if (evt && evt.target) {
+          evt.target.classList.add('active');
+        }
+        document.getElementById(id).classList.add('active');
+      }
+
+      function mostrarResultadoFiltros(tipo, mensagem) {
+        var div = document.getElementById('f_resultado');
+        div.className = 'resultado ' + tipo;
+        div.textContent = mensagem;
+      }
+
+      function exportarPDF(btn) {
+        var aba = document.getElementById('aba_pdf').value;
+        if (!aba) return alert('Selecione uma aba');
+        btn.innerText = 'Gerando...';
+        btn.disabled = true;
+        google.script.run
+          .withSuccessHandler(function (res) {
+              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.disabled = false;
+              if (res && res.success) { alert('Salvo no Drive!\\nUpload completado.'); }
+              else { alert('Erro: ' + res.error); }
+          })
+          .withFailureHandler(function (err) {
+              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.disabled = false;
+              alert('Erro de conexão: ' + err.message);
+          })
+          .exportarAbaParaPDF(aba);
+      }
+
+      function enviarEmail(btn) {
+        var email = document.getElementById('dest').value;
+        var aba = document.getElementById('aba_email').value;
+        var msg = document.getElementById('msg').value;
+        if (!email || !aba) {
+            alert('Preencha os campos obrigatórios (Email e Aba)');
+            return;
+        }
+
+        btn.innerText = 'Enviando email...';
+        btn.disabled = true;
+        google.script.run
+          .withSuccessHandler(function (res) {
+              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.disabled = false;
+              if (res && res.success) alert('\\u2705 Email enviado com sucesso!');
+              else alert('Falha ao Enviar: ' + (res && res.error ? res.error : 'Erro desconhecido ao enviar o email.'));
+          })
+          .withFailureHandler(function (err) {
+              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.disabled = false;
+              alert('Erro de conexão: ' + err.message);
+          })
+          .enviarRelatorioPorEmail(aba, email, 'Novo Relatório Gerado', msg);
+      }
+
+      function executarFiltrosRelatorio(btn) {
+        var tipo = document.getElementById('f_tipo').value;
+        var competencia = document.getElementById('f_competencia').value;
+        var departamento = document.getElementById('f_dpto').value;
+        var status = document.getElementById('f_status').value;
+        var exigeCompetencia = ['folha', 'beneficios', 'variavel', 'apontamentos'].indexOf(tipo) !== -1;
+
+        if (!tipo) {
+          mostrarResultadoFiltros('error', 'Selecione o tipo de relatório.');
+          return;
+        }
+
+        if (exigeCompetencia && !competencia) {
+          mostrarResultadoFiltros('error', 'Informe a competência no formato MM/AAAA ou MMAAAA.');
+          return;
+        }
+
+        btn.innerText = '⏳ Gerando...';
+        btn.disabled = true;
+        mostrarResultadoFiltros('info', 'Gerando relatório com os filtros informados...');
+
+        google.script.run
+          .withSuccessHandler(function (res) {
+            btn.innerText = '📊 Executar Filtros';
+            btn.disabled = false;
+
+            if (res && res.success) {
+              mostrarResultadoFiltros('success', '✅ Relatório gerado com sucesso! Aba criada: ' + res.aba);
+              setTimeout(function () { google.script.host.close(); }, 1500);
+            } else {
+              mostrarResultadoFiltros('error', res && res.error ? res.error : 'Erro desconhecido ao gerar relatório.');
+            }
+          })
+          .withFailureHandler(function (err) {
+            btn.innerText = '📊 Executar Filtros';
+            btn.disabled = false;
+            mostrarResultadoFiltros('error', 'Erro de conexão: ' + err.message);
+          })
+          .gerarRelatorioComFiltrosAPI({
+            tipo: tipo,
+            competencia: competencia,
+            departamento: departamento,
+            status: status
+          });
+      }
+    </script>
+    `).setWidth(480).setHeight(640);
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Relatórios Avançados');
+}
+
+function obterNomeBaseRelatorioPorTipo(tipo) {
+    var mapa = {
+        folha: 'Folha de Pagamento',
+        beneficios: 'Benefícios',
+        variavel: 'Apuração de Variável',
+        apontamentos: 'Apontamentos',
+        seguros: 'Seguros de Vida'
+    };
+    return mapa[tipo] || 'Relatório';
+}
+
+function obterNomeAbaRelatorioPorTipo(tipo, periodo) {
+    var nomeBase = obterNomeBaseRelatorioPorTipo(tipo);
+    if (!periodo) {
+        return nomeBase;
+    }
+
+    var meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    return nomeBase + ' ' + meses[periodo.mes - 1] + '-' + periodo.ano;
+}
+
+function normalizarFiltrosRelatorioAvancado(filtros) {
+    var tipo = filtros && filtros.tipo ? String(filtros.tipo).trim().toLowerCase() : '';
+    var competencia = filtros && filtros.competencia ? String(filtros.competencia).trim() : '';
+    var departamento = filtros && filtros.departamento ? String(filtros.departamento).trim() : '';
+    var status = filtros && filtros.status ? String(filtros.status).trim().toLowerCase() : '';
+    var exigeCompetencia = ['folha', 'beneficios', 'variavel', 'apontamentos'].indexOf(tipo) !== -1;
+    var periodo = null;
+    var filtrosAPI = {
+        departamento: departamento || null,
+        status: null,
+        status_pagamento: null
+    };
+
+    if (!tipo) {
+        throw new Error('Selecione o tipo de relatório.');
+    }
+
+    if (exigeCompetencia) {
+        periodo = parseCompetenciaBR(competencia);
+        if (!periodo) {
+            throw new Error('Competência inválida. Use MM/AAAA, M/AAAA, MMAAAA ou MM-AAAA.');
+        }
+    }
+
+    if (status) {
+        if (tipo === 'folha' && (status === 'pago' || status === 'pendente')) {
+            filtrosAPI.status_pagamento = status;
+        } else {
+            filtrosAPI.status = status;
+        }
+    }
+
+    return {
+        tipo: tipo,
+        periodo: periodo,
+        filtrosAPI: filtrosAPI,
+        statusOriginal: status,
+        departamento: departamento
+    };
+}
+
+function chamarAPIRelatorioComFiltros(tipo, periodo, filtros) {
+    var url = CONFIG.API_URL + '/relatorios/gerar';
+    var payload = {
+        tipo: tipo,
+        periodo: periodo,
+        filtros: filtros,
+        formato: 'json'
+    };
+    var options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true
+    };
+
+    try {
+        var response = UrlFetchApp.fetch(url, options);
+        var statusCode = response.getResponseCode();
+        var body = response.getContentText();
+
+        Logger.log('[RelatorioFiltros] HTTP ' + statusCode);
+        Logger.log('[RelatorioFiltros] Body: ' + body.substring(0, 500));
+
+        var resultado = null;
+        try {
+            resultado = JSON.parse(body);
+        } catch (parseError) {
+            return { success: false, error: 'Resposta inválida da API de relatórios: ' + parseError.message };
+        }
+
+        if (statusCode !== 200) {
+            return { success: false, error: (resultado && resultado.error) ? resultado.error : ('HTTP ' + statusCode + ': ' + body.substring(0, 200)) };
+        }
+
+        if (!resultado || resultado.success === false) {
+            return { success: false, error: resultado && resultado.error ? resultado.error : 'A API não retornou um relatório válido.' };
+        }
+
+        return resultado;
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function buscarRegistrosBaseRelatorio(tipo, periodo, filtrosAPI) {
+    if (!periodo && tipo !== 'seguros') {
+        return { success: false, error: 'Período não informado para o relatório selecionado.' };
+    }
+
+    if (tipo === 'seguros') {
+        return { success: true, data: [] };
+    }
+
+    var params = [];
+    var endpoint = '';
+
+    if (tipo === 'folha') {
+        endpoint = '/folha';
+        params.push('ano=' + encodeURIComponent(periodo.ano));
+        params.push('mes=' + encodeURIComponent(periodo.mes));
+        if (filtrosAPI.status_pagamento) {
+            params.push('status=' + encodeURIComponent(filtrosAPI.status_pagamento));
+        }
+    } else if (tipo === 'beneficios') {
+        endpoint = '/beneficios';
+        params.push('ano=' + encodeURIComponent(periodo.ano));
+        params.push('mes=' + encodeURIComponent(periodo.mes));
+    } else if (tipo === 'variavel') {
+        endpoint = '/variavel';
+        params.push('ano=' + encodeURIComponent(periodo.ano));
+        params.push('mes=' + encodeURIComponent(periodo.mes));
+        if (filtrosAPI.status && filtrosAPI.status !== 'ativo' && filtrosAPI.status !== 'inativo') {
+            params.push('status=' + encodeURIComponent(filtrosAPI.status));
+        }
+    } else if (tipo === 'apontamentos') {
+        endpoint = '/apontamentos';
+        params.push('ano=' + encodeURIComponent(periodo.ano));
+        params.push('mes=' + encodeURIComponent(periodo.mes));
+    } else {
+        return { success: false, error: 'Este tipo de relatório ainda não possui filtros avançados no backend.' };
+    }
+
+    try {
+        var url = CONFIG.API_URL + endpoint + (params.length > 0 ? '?' + params.join('&') : '');
+        var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+        var statusCode = response.getResponseCode();
+        var body = response.getContentText();
+        var resultado = null;
+
+        Logger.log('[RelatorioFiltrosFallback] ' + endpoint + ' HTTP ' + statusCode);
+        Logger.log('[RelatorioFiltrosFallback] Body: ' + body.substring(0, 500));
+
+        try {
+            resultado = JSON.parse(body);
+        } catch (parseError) {
+            return { success: false, error: 'Resposta inválida ao consultar registros base: ' + parseError.message };
+        }
+
+        if (statusCode !== 200) {
+            return { success: false, error: resultado && resultado.error ? resultado.error : ('HTTP ' + statusCode + ': ' + body.substring(0, 200)) };
+        }
+
+        return { success: true, data: resultado && resultado.data ? resultado.data : [] };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function buscarColaboradoresParaRelatorioComFiltros(departamento, statusColaborador) {
+    var payload = {
+        filtros: {}
+    };
+
+    if (statusColaborador) {
+        payload.filtros.status = statusColaborador;
+    }
+
+    try {
+        var response = UrlFetchApp.fetch(CONFIG.API_URL + '/colaboradores/buscar', {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+        });
+        var statusCode = response.getResponseCode();
+        var body = response.getContentText();
+        var resultado = null;
+
+        Logger.log('[RelatorioFiltrosColab] HTTP ' + statusCode);
+        Logger.log('[RelatorioFiltrosColab] Body: ' + body.substring(0, 500));
+
+        try {
+            resultado = JSON.parse(body);
+        } catch (parseError) {
+            return { success: false, error: 'Resposta inválida ao buscar colaboradores: ' + parseError.message };
+        }
+
+        if (statusCode !== 200) {
+            return { success: false, error: resultado && resultado.error ? resultado.error : ('HTTP ' + statusCode + ': ' + body.substring(0, 200)) };
+        }
+
+        var colaboradores = resultado && resultado.colaboradores ? resultado.colaboradores : [];
+        if (departamento) {
+            colaboradores = colaboradores.filter(function (colab) {
+                return String(colab.departamento || '').toLowerCase() === departamento.toLowerCase();
+            });
+        }
+
+        return { success: true, colaboradores: colaboradores };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function intersectarListasCPF(listaA, listaB) {
+    if (!listaA || listaA.length === 0) return listaB ? listaB.slice() : [];
+    if (!listaB || listaB.length === 0) return listaA.slice();
+
+    var mapa = {};
+    var resultado = [];
+    var i = 0;
+
+    for (i = 0; i < listaA.length; i++) {
+        mapa[listaA[i]] = true;
+    }
+
+    for (i = 0; i < listaB.length; i++) {
+        if (mapa[listaB[i]]) {
+            resultado.push(listaB[i]);
+        }
+    }
+
+    return resultado;
+}
+
+function extrairCpfsUnicosDeRegistros(registros) {
+    var mapa = {};
+    var cpfs = [];
+    var i = 0;
+
+    for (i = 0; i < registros.length; i++) {
+        var cpf = registros[i] && registros[i].cpf ? somenteDigitos(registros[i].cpf) : '';
+        if (cpf && !mapa[cpf]) {
+            mapa[cpf] = true;
+            cpfs.push(cpf);
+        }
+    }
+
+    return cpfs;
+}
+
+function gerarRelatorioComFiltrosAPI(filtros) {
+    try {
+        var dadosNormalizados = normalizarFiltrosRelatorioAvancado(filtros);
+        var tipo = dadosNormalizados.tipo;
+        var periodo = dadosNormalizados.periodo;
+        var filtrosAPI = dadosNormalizados.filtrosAPI;
+        var nomeRelatorio = obterNomeBaseRelatorioPorTipo(tipo);
+        var nomeAba = obterNomeAbaRelatorioPorTipo(tipo, periodo);
+        var resDireto = chamarAPIRelatorioComFiltros(tipo, periodo, filtrosAPI);
+
+        if (resDireto.success && resDireto.layout) {
+            criarAbaRelatorio(tipo, nomeRelatorio, resDireto, periodo);
+            return {
+                success: true,
+                aba: nomeAba,
+                message: 'Relatório gerado com sucesso.'
+            };
+        }
+
+        Logger.log('[RelatorioFiltros] Fallback ativado: ' + (resDireto.error || 'API sem suporte a filtros.'));
+
+        var precisaFiltroColaborador = !!dadosNormalizados.departamento ||
+            dadosNormalizados.statusOriginal === 'ativo' ||
+            dadosNormalizados.statusOriginal === 'inativo' ||
+            tipo === 'seguros';
+
+        var cpfsPeriodo = null;
+        if (tipo === 'folha' || tipo === 'beneficios' || tipo === 'variavel' || tipo === 'apontamentos') {
+            var registrosBase = buscarRegistrosBaseRelatorio(tipo, periodo, filtrosAPI);
+            if (!registrosBase.success) {
+                return { success: false, error: registrosBase.error };
+            }
+
+            cpfsPeriodo = extrairCpfsUnicosDeRegistros(registrosBase.data || []);
+            if (cpfsPeriodo.length === 0) {
+                return { success: false, error: 'Nenhum colaborador encontrado para os filtros informados.' };
+            }
+        }
+
+        var cpfsColaboradores = null;
+        if (precisaFiltroColaborador) {
+            var buscaColaboradores = buscarColaboradoresParaRelatorioComFiltros(
+                dadosNormalizados.departamento,
+                dadosNormalizados.statusOriginal === 'ativo' || dadosNormalizados.statusOriginal === 'inativo'
+                    ? dadosNormalizados.statusOriginal
+                    : ''
+            );
+
+            if (!buscaColaboradores.success) {
+                return { success: false, error: buscaColaboradores.error };
+            }
+
+            cpfsColaboradores = (buscaColaboradores.colaboradores || []).map(function (colab) {
+                return somenteDigitos(colab.cpf);
+            }).filter(function (cpf) { return cpf !== ''; });
+
+            if (cpfsColaboradores.length === 0) {
+                return { success: false, error: 'Nenhum colaborador encontrado para os filtros informados.' };
+            }
+        }
+
+        var cpfs = null;
+        if (cpfsPeriodo && cpfsColaboradores) {
+            cpfs = intersectarListasCPF(cpfsPeriodo, cpfsColaboradores);
+        } else if (cpfsPeriodo) {
+            cpfs = cpfsPeriodo;
+        } else if (cpfsColaboradores) {
+            cpfs = cpfsColaboradores;
+        } else {
+            return { success: false, error: 'Este tipo de relatório ainda não possui filtros avançados no backend.' };
+        }
+
+        if (!cpfs || cpfs.length === 0) {
+            return { success: false, error: 'Nenhum colaborador encontrado para os filtros informados.' };
+        }
+
+        var resultado = chamarAPIRelatorio(tipo, cpfs, periodo);
+        if (!resultado || resultado.success === false) {
+            return { success: false, error: resultado && resultado.error ? resultado.error : 'Não foi possível gerar o relatório com os filtros informados.' };
+        }
+
+        criarAbaRelatorio(tipo, nomeRelatorio, resultado, periodo);
+        return {
+            success: true,
+            aba: nomeAba,
+            message: 'Relatório gerado com sucesso.'
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
 }

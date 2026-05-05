@@ -67,6 +67,8 @@ function onOpen() {
             .addItem('🧪 Diagnosticar Meu Acesso', 'verificarMeuAcessoSistemaRH')
             .addItem('🧪 Diagnosticar Módulo Planos', 'diagnosticarModuloAdminPlanos')
             .addSeparator()
+            .addItem('🔑 Ativar Convite / Primeiro Acesso', 'mostrarPromptAtivarConvite')
+            .addSeparator()
             .addItem('📁 Configurar Pasta de Relatórios', 'configurarPastaDestino')
             .addItem('🔍 Diagnosticar Pasta de Relatórios', 'diagnosticarPastaRelatorios')
             .addSeparator()
@@ -7649,6 +7651,63 @@ function atualizarAdministradorSistemaRHAPI(id, dados) {
     return chamarApiAdminSistemaRH('/admin/users/' + id, 'patch', dados);
 }
 
+/**
+ * Mostra um prompt para o usuário colar o código de convite e ativar seu acesso.
+ */
+function mostrarPromptAtivarConvite() {
+    const ui = SpreadsheetApp.getUi();
+    const response = ui.prompt('🔑 Ativar Convite', 
+        'Cole abaixo o código de ativação recebido por e-mail:', 
+        ui.ButtonSet.OK_CANCEL);
+
+    if (response.getSelectedButton() === ui.Button.OK) {
+        const token = response.getResponseText().trim();
+        if (!token) {
+            ui.alert('O código não pode estar vazio.');
+            return;
+        }
+
+        ui.showModalDialog(
+            HtmlService.createHtmlOutput('<h3>Ativando...</h3><p>Aguarde enquanto validamos seu código.</p>'),
+            'Aguarde'
+        );
+
+        const res = aceitarConviteSistemaRH(token);
+        
+        // Fecha o "Aguarde" (abrir outro modal ou alerta fecha o anterior)
+        if (res.success) {
+            ui.alert('✅ Sucesso!', 'Seu acesso foi ativado com sucesso.\n\nAgora você pode usar todas as funcionalidades do sistema.', ui.ButtonSet.OK);
+            verificarMeuAcessoSistemaRH(); // Dispara onboarding de pasta se necessário
+        } else {
+            ui.alert('❌ Falha na Ativação', res.error || 'Código inválido ou expirado.', ui.ButtonSet.OK);
+        }
+    }
+}
+
+/**
+ * Tenta enviar o e-mail de convite usando o MailApp do Apps Script.
+ * @return {success: boolean, fallback: boolean, error: string}
+ */
+function enviarEmailConviteAppsScript(dados) {
+    try {
+        const quota = MailApp.getRemainingDailyQuota();
+        if (quota <= 0) {
+            return { success: false, fallback: true, error: 'Quota diária de e-mails do Google atingida.' };
+        }
+
+        MailApp.sendEmail({
+            to: dados.email,
+            subject: dados.delivery.subject,
+            htmlBody: dados.delivery.html
+        });
+
+        return { success: true, fallback: false };
+    } catch (e) {
+        Logger.log('Erro ao enviar e-mail via MailApp: ' + e.message);
+        return { success: false, fallback: true, error: e.message };
+    }
+}
+
 function removerAdministradorSistemaRHAPI(id) {
     return chamarApiAdminSistemaRH('/admin/users/' + id, 'delete');
 }
@@ -7695,11 +7754,15 @@ function abrirGerenciamentoAdministradoresSistemaRH() {
         .badge-revoked { background: #f1f5f9; color: #475569; }
         .form-group { margin-bottom: 15px; }
         label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
-        input, select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; font-family: inherit; }
         .view-panel { display: none; }
         .view-panel.active { display: block; }
         .loading { text-align: center; padding: 40px; color: #64748b; }
         .empty { text-align: center; padding: 20px; color: #94a3b8; font-style: italic; font-size: 13px; }
+        
+        /* Overlay Modals */
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+        .modal-content { background: white; width: 100%; max-width: 380px; border-radius: 10px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); max-height: 90vh; overflow-y: auto; }
       </style>
     </head>
     <body>
@@ -7722,8 +7785,8 @@ function abrirGerenciamentoAdministradoresSistemaRH() {
       </div>
 
       <!-- Modal de Convite -->
-      <div id="editor-view" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; padding:20px; z-index:100;">
-        <div style="background:white; width:100%; max-width:350px; border-radius:10px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1);">
+      <div id="editor-view" class="overlay">
+        <div class="modal-content">
           <h3 style="margin-top:0">Enviar Convite</h3>
           <div class="form-group">
             <label>E-mail do Usuário (Google)</label>

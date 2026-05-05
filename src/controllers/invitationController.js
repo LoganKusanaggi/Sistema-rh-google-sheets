@@ -60,23 +60,39 @@ const invitationController = {
 
       if (invError) throw invError;
 
-      // Enviar e-mail
-      const emailRes = await emailService.sendInvitation(normalizedEmail, role, token);
-
-      // Auditoria (Simples)
+      // Auditoria
       console.log(`[Audit] Convite criado para ${normalizedEmail} por ${adminEmail}`);
+
+      // Preparar payload de entrega para o Apps Script
+      const baseUrl = process.env.INVITATION_BASE_URL || 'https://docs.google.com/spreadsheets/d/SEU_ID';
+      const invitationLink = `${baseUrl}?invite_token=${token}`;
 
       return res.json({
         success: true,
-        message: 'Convite criado e enviado com sucesso.',
+        message: 'Convite criado com sucesso. O token foi gerado para entrega.',
         invitation: {
           id: invitation.id,
           email: invitation.email,
           role: invitation.role,
           status: invitation.status,
-          expires_at: invitation.expires_at
-        },
-        email_sent: emailRes.success
+          expires_at: invitation.expires_at,
+          plaintext_token: token, // Retornado apenas uma vez aqui
+          delivery: {
+            subject: 'Convite para acessar o Sistema RH',
+            body: `Olá,\n\nVocê foi convidado para acessar o Sistema RH com o papel de ${role}.\n\nPara aceitar o convite e ativar seu acesso, utilize o link abaixo:\n${invitationLink}\n\nOU utilize o código de ativação manualmente na planilha:\nCódigo: ${token}\n\nUse obrigatoriamente o e-mail ${normalizedEmail} para acessar via Google.\n\nSe você não esperava este convite, ignore este e-mail.`,
+            html: `<div style="font-family:sans-serif;line-height:1.6;color:#333;max-width:600px;margin:0 auto;border:1px solid #eee;padding:20px;border-radius:10px;">
+              <h2 style="color:#2563eb;">Olá!</h2>
+              <p>Você foi convidado para acessar o <strong>Sistema RH</strong>.</p>
+              <p>Clique no botão abaixo para aceitar o convite e ativar seu acesso:</p>
+              <div style="text-align:center;margin:30px 0;">
+                <a href="${invitationLink}" style="background-color:#2563eb;color:white;padding:12px 24px;text-decoration:none;border-radius:5px;font-weight:bold;display:inline-block;">Aceitar Convite</a>
+              </div>
+              <p>Ou utilize o código abaixo no menu <strong>"Ativar Convite"</strong> da planilha:</p>
+              <code style="display:block;background:#f1f5f9;padding:10px;border-radius:5px;text-align:center;font-weight:bold;">${token}</code>
+              <p style="font-size:0.9em;color:#666;margin-top:20px;">Use o e-mail <strong>${normalizedEmail}</strong>.</p>
+            </div>`
+          }
+        }
       });
     } catch (err) {
       console.error('[Invitation Create] Erro:', err.message);

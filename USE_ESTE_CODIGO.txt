@@ -7445,6 +7445,79 @@ function abrirGerenciamentoPlanos() {
 }
 
 /**
+ * Verifica o acesso do usuário logado e dispara o onboarding se necessário.
+ * @param {boolean} silencioso - Se true, não exibe alertas de sucesso ou erro de permissão.
+ */
+function verificarMeuAcessoSistemaRH(silencioso) {
+    const ui = SpreadsheetApp.getUi();
+    try {
+        const res = chamarApiUsuarioSistemaRH('/me/profile', 'get');
+        
+        if (!res.success) {
+            if (silencioso) return; // No onOpen, ignora erros silenciosamente
+            
+            if (res.error && res.error.includes('não está autorizado')) {
+                ui.alert('🔐 Acesso Negado', 'Seu e-mail Google não possui acesso autorizado ao Sistema RH.\n\nSolicite um convite a um administrador.', ui.ButtonSet.OK);
+                return;
+            }
+            throw new Error(res.error);
+        }
+
+        const perfil = res.data;
+        
+        // Onboarding: Verificar se precisa configurar pasta de relatórios
+        if (perfil.needs_report_folder_setup) {
+            const resp = ui.alert(
+                '👋 Bem-vindo ao Sistema RH!',
+                'Identificamos que você ainda não configurou sua pasta de destino para relatórios PDF.\n\nDeseja configurar agora?',
+                ui.ButtonSet.YES_NO
+            );
+            
+            if (resp === ui.Button.YES) {
+                configurarPastaDestino();
+            }
+        } else if (!silencioso) {
+            // Apenas confirmação se chamado via menu (não silencioso)
+            ui.alert('✅ Acesso Confirmado', 'Usuário: ' + perfil.email + '\nPapel: ' + perfil.role + '\nStatus: ' + perfil.status, ui.ButtonSet.OK);
+        }
+
+    } catch (e) {
+        Logger.log('[Verificar Acesso] Erro: ' + e.message);
+        if (!silencioso) {
+            ui.alert('❌ Erro na Verificação', 'Não foi possível validar seu acesso: ' + e.message, ui.ButtonSet.OK);
+        }
+    }
+}
+
+/**
+ * Aceita um convite usando um token.
+ */
+function aceitarConviteSistemaRH(token) {
+    return chamarApiUsuarioSistemaRH('/invitations/accept', 'post', { token: token });
+}
+
+/**
+ * Cria um convite (Admin).
+ */
+function criarConviteSistemaRH(email, role) {
+    return chamarApiAdminSistemaRH('/admin/invitations', 'post', { email: email, role: role });
+}
+
+/**
+ * Revoga um convite pendente (Admin).
+ */
+function revogarConviteSistemaRH(id) {
+    return chamarApiAdminSistemaRH('/admin/invitations/' + id + '/revoke', 'post');
+}
+
+/**
+ * Lista todos os convites do tenant (Admin).
+ */
+function listarConvitesSistemaRH() {
+    return chamarApiAdminSistemaRH('/admin/invitations', 'get');
+}
+
+/**
  * Obtém o token de identidade do usuário atual para autorização no backend.
  */
 function obterTokenIdentidadeSistemaRH() {

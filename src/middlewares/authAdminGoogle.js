@@ -115,9 +115,19 @@ function requireAdminGoogle(allowedRoles = []) {
         return next();
       } catch (err) {
         console.error('[Admin Auth] Erro interno:', err.message);
+        
+        // Verificar se é erro de tabela inexistente (comum se a migração 009 não foi rodada)
+        if (err.message && (err.message.includes('relation "system_users" does not exist') || err.code === 'PGRST116')) {
+           return res.status(500).json({
+            success: false,
+            error: 'Infraestrutura: A tabela de usuários (system_users) não foi encontrada.',
+            details: 'Por favor, execute a migração SQL 009 no painel do Supabase para ativar o novo sistema de convites.'
+          });
+        }
+
         return res.status(500).json({
           success: false,
-          error: 'Erro interno ao validar autorização.'
+          error: 'Erro interno ao validar autorização: ' + err.message
         });
       }
     }

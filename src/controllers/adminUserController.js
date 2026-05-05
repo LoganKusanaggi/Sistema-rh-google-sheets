@@ -8,7 +8,7 @@ module.exports = {
   async listar(req, res) {
     try {
       const { data, error } = await supabase
-        .from('admin_users')
+        .from('system_users')
         .select('*')
         .order('role', { ascending: true })
         .order('email', { ascending: true });
@@ -36,13 +36,12 @@ module.exports = {
 
       // 1. Criar usuário
       const { data, error } = await supabase
-        .from('admin_users')
+        .from('system_users')
         .insert([{
           email: normalizedEmail,
-          nome: nome || null,
           role: role || 'ADMIN',
-          ativo: ativo !== false,
-          criado_por: actor.email
+          status: ativo !== false ? 'ACTIVE' : 'INACTIVE',
+          // O nome agora é opcional ou preenchido pelo Google Identity no primeiro acesso
         }])
         .select()
         .single();
@@ -80,7 +79,7 @@ module.exports = {
 
       // 1. Buscar usuário atual
       const { data: currentUser, error: fetchError } = await supabase
-        .from('admin_users')
+        .from('system_users')
         .select('*')
         .eq('id', id)
         .single();
@@ -92,10 +91,10 @@ module.exports = {
       // 2. Regra de Segurança: Não permitir desativar ou rebaixar o último OWNER
       if (currentUser.role === 'OWNER' && (role !== 'OWNER' || ativo === false)) {
         const { count } = await supabase
-          .from('admin_users')
+          .from('system_users')
           .select('*', { count: 'exact', head: true })
           .eq('role', 'OWNER')
-          .eq('ativo', true);
+          .eq('status', 'ACTIVE');
 
         if (count <= 1) {
           return res.status(400).json({ 
@@ -107,11 +106,10 @@ module.exports = {
 
       // 3. Atualizar
       const { data, error } = await supabase
-        .from('admin_users')
+        .from('system_users')
         .update({
-          nome: nome !== undefined ? nome : currentUser.nome,
           role: role !== undefined ? role : currentUser.role,
-          ativo: ativo !== undefined ? ativo : currentUser.ativo
+          status: ativo !== undefined ? (ativo ? 'ACTIVE' : 'INACTIVE') : currentUser.status
         })
         .eq('id', id)
         .select()
@@ -144,7 +142,7 @@ module.exports = {
 
       // 1. Buscar usuário atual
       const { data: currentUser, error: fetchError } = await supabase
-        .from('admin_users')
+        .from('system_users')
         .select('*')
         .eq('id', id)
         .single();
@@ -156,10 +154,10 @@ module.exports = {
       // 2. Regra de Segurança: Não permitir remover o último OWNER
       if (currentUser.role === 'OWNER') {
         const { count } = await supabase
-          .from('admin_users')
+          .from('system_users')
           .select('*', { count: 'exact', head: true })
           .eq('role', 'OWNER')
-          .eq('ativo', true);
+          .eq('status', 'ACTIVE');
 
         if (count <= 1) {
           return res.status(400).json({ 
@@ -171,8 +169,8 @@ module.exports = {
 
       // 3. Soft Delete (Inativar)
       const { error } = await supabase
-        .from('admin_users')
-        .update({ ativo: false })
+        .from('system_users')
+        .update({ status: 'INACTIVE' })
         .eq('id', id);
 
       if (error) throw error;

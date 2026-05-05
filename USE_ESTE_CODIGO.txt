@@ -7439,14 +7439,14 @@ function abrirGerenciamentoPlanos() {
 /**
  * Obtém o token de identidade do usuário atual para autorização no backend.
  */
-function obterTokenIdentidadeAdminSistemaRH() {
+function obterTokenIdentidadeSistemaRH() {
     try {
         const token = ScriptApp.getIdentityToken();
 
         if (!token) {
             return {
                 success: false,
-                error: 'Não foi possível obter o token de identidade do usuário. Verifique se o escopo openid está autorizado no Apps Script.'
+                error: 'Não foi possível obter o token de identidade. Verifique se o escopo openid está autorizado no Apps Script.'
             };
         }
 
@@ -7463,11 +7463,34 @@ function obterTokenIdentidadeAdminSistemaRH() {
 }
 
 /**
+ * Alias para manter retrocompatibilidade com o módulo administrativo.
+ */
+function obterTokenIdentidadeAdminSistemaRH() {
+    return obterTokenIdentidadeSistemaRH();
+}
+
+/**
+ * Helper centralizado para chamadas à API de USUÁRIO comum usando Google Identity Token.
+ * Usado para recursos personalizados como configuração de pastas.
+ */
+function chamarApiUsuarioSistemaRH(endpoint, method, payload) {
+    return chamarApiGenericaSistemaRH_(endpoint, method, payload, '[User API]');
+}
+
+/**
  * Helper centralizado para chamadas à API administrativa usando Google Identity Token.
  */
 function chamarApiAdminSistemaRH(endpoint, method, payload) {
+    return chamarApiGenericaSistemaRH_(endpoint, method, payload, '[Admin API]');
+}
+
+/**
+ * Motor genérico de chamadas à API do Sistema RH.
+ * @private
+ */
+function chamarApiGenericaSistemaRH_(endpoint, method, payload, logPrefix) {
     try {
-        const tokenRes = obterTokenIdentidadeAdminSistemaRH();
+        const tokenRes = obterTokenIdentidadeSistemaRH();
 
         if (!tokenRes.success) {
             return {
@@ -7490,13 +7513,13 @@ function chamarApiAdminSistemaRH(endpoint, method, payload) {
             options.payload = JSON.stringify(payload);
         }
 
-        Logger.log('[Admin API] ' + String(options.method).toUpperCase() + ' ' + url);
+        Logger.log(logPrefix + ' ' + String(options.method).toUpperCase() + ' ' + url);
 
         const response = UrlFetchApp.fetch(url, options);
         const status = response.getResponseCode();
         const body = response.getContentText();
 
-        Logger.log('[Admin API] HTTP ' + status + ' Body: ' + body.substring(0, 1000));
+        Logger.log(logPrefix + ' HTTP ' + status + ' Body: ' + body.substring(0, 1000));
 
         let json = null;
         try {
@@ -7912,5 +7935,254 @@ function diagnosticarTokenIdentidadeAdminSistemaRH() {
     '\nAudience: ' + payload.aud,
     SpreadsheetApp.getUi().ButtonSet.OK
   );
+}
+
+// =====================================================
+// CONFIGURAÇÃO DE PASTA DE RELATÓRIOS - SISTEMA RH
+// =====================================================
+// Objetivo:
+// - Gerenciamento de pasta de destino PDF por USUÁRIO.
+// - Persistência segura no backend (Supabase).
+// - Isolamento de permissões entre contas Google.
+// =====================================================
+
+const SISTEMA_RH_RELATORIOS_FOLDER_NAME = 'Sistema RH - Relatórios';
+
+/**
+ * Abre o modal para configurar a pasta de destino dos relatórios.
+ */
+function configurarPastaDestino() {
+    const ui = SpreadsheetApp.getUi();
+
+    try {
+        // 1. Obter configuração atual do backend
+        const resBackend = chamarApiUsuarioSistemaRH('/me/report-folder', 'get');
+        let pastaAtualTexto = 'Nenhuma pasta configurada no seu perfil.';
+        let folderIdAtual = null;
+
+        if (resBackend.success && resBackend.data) {
+            folderIdAtual = resBackend.data.folder_id;
+            pastaAtualTexto = 'Nome: ' + resBackend.data.folder_name + '\nURL: ' + resBackend.data.folder_url;
+        }
+
+        const resposta = ui.prompt(
+            '📁 Minha Pasta de Relatórios',
+            'Sua configuração atual:\n' + pastaAtualTexto +
+            '\n\nInforme a URL ou o ID da pasta do Google Drive onde seus relatórios devem ser salvos.' +
+            '\n\nDeixe em branco para usar sua pasta padrão:\n"' + SISTEMA_RH_RELATORIOS_FOLDER_NAME + '"',
+            ui.ButtonSet.OK_CANCEL
+        );
+
+        if (resposta.getSelectedButton() !== ui.Button.OK) {
+            return { success: false, cancelled: true };
+        }
+
+        const entrada = String(resposta.getResponseText() || '').trim();
+
+        let pastaDestino;
+        if (entrada === '') {
+            pastaDestino = criarOuObterPastaPadraoRelatoriosSistemaRH();
+        } else {
+            const folderId = extrairIdPastaDriveSistemaRH(entrada);
+            if (!folderId) {
+                throw new Error('Não foi possível identificar o ID da pasta. Informe uma URL válida do Google Drive ou o ID puro da pasta.');
+            }
+
+            pastaDestino = DriveApp.getFolderById(folderId);
+            validarPastaRelatoriosUsuarioSistemaRH(folderId);
+        }
+
+        // 2. Salvar no Backend
+        const resSalvar = salvarPastaRelatoriosUsuarioSistemaRH({
+            folder_id: pastaDestino.getId(),
+            folder_url: pastaDestino.getUrl(),
+            folder_name: pastaDestino.getName()
+        });
+
+        if (!resSalvar.success) {
+            throw new Error('Falha ao persistir configuração no backend: ' + resSalvar.error);
+        }
+
+        ui.alert(
+            '✅ Pasta validada e salva com sucesso',
+            'Seus relatórios agora serão salvos nesta pasta:\n\n' +
+            pastaDestino.getName() + '\n' +
+            pastaDestino.getUrl(),
+            ui.ButtonSet.OK
+        );
+
+        return { success: true };
+    } catch (e) {
+        Logger.log('[Pasta Relatórios] Erro: ' + e.message);
+        ui.alert('❌ Erro na configuração', e.message, ui.ButtonSet.OK);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Diagnostica a pasta de relatórios do usuário atual.
+ */
+function diagnosticarPastaRelatorios() {
+    const ui = SpreadsheetApp.getUi();
+    const logs = [];
+
+    try {
+        logs.push('🔍 Diagnóstico: Minha Pasta de Relatórios');
+        logs.push('----------------------------------------');
+
+        // 1. Identidade
+        const tokenRes = obterTokenIdentidadeSistemaRH();
+        if (!tokenRes.success) throw new Error(tokenRes.error);
+
+        // Decodificar apenas para mostrar o e-mail no log (opcional)
+        const partes = tokenRes.token.split('.');
+        const payload = JSON.parse(Utilities.newBlob(Utilities.base64DecodeWebSafe(partes[1])).getDataAsString());
+        logs.push('E-mail Google: ' + payload.email);
+
+        // 2. Backend
+        logs.push('Buscando configuração no backend...');
+        const resBackend = chamarApiUsuarioSistemaRH('/me/report-folder', 'get');
+        
+        if (!resBackend.success) {
+            throw new Error('Erro ao consultar backend: ' + resBackend.error);
+        }
+
+        if (!resBackend.data) {
+            logs.push('Status Backend: NÃO CONFIGURADO');
+            logs.push('\nResultado: Ação necessária.');
+            logs.push('Por favor, use o menu "Configurar Pasta de Relatórios".');
+        } else {
+            const config = resBackend.data;
+            logs.push('Status Backend: CONFIGURADO');
+            logs.push('ID salvo: ' + config.folder_id);
+            logs.push('Pasta salva: ' + config.folder_name);
+
+            // 3. Drive Local
+            logs.push('\nValidando acesso ao Google Drive...');
+            try {
+                const pasta = DriveApp.getFolderById(config.folder_id);
+                logs.push('Acesso à pasta: OK');
+                logs.push('Permissões: Validando escrita...');
+                
+                validarPastaRelatoriosUsuarioSistemaRH(config.folder_id);
+                logs.push('Permissão de escrita: OK');
+                
+                logs.push('\n✅ TUDO PRONTO');
+                logs.push('Seus relatórios serão salvos com sucesso.');
+            } catch (errDrive) {
+                logs.push('❌ ERRO DRIVE: ' + errDrive.message);
+                logs.push('\nCausa provável: A pasta foi excluída ou você perdeu o acesso a ela.');
+            }
+        }
+
+        ui.alert('Diagnóstico de Relatórios', logs.join('\n'), ui.ButtonSet.OK);
+    } catch (e) {
+        ui.alert('❌ Erro no Diagnóstico', e.message, ui.ButtonSet.OK);
+    }
+}
+
+/**
+ * Extrai o ID da pasta do Drive.
+ */
+function extrairIdPastaDriveSistemaRH(entrada) {
+    const texto = String(entrada || '').trim();
+    if (texto === '') return '';
+    const matchFolders = texto.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (matchFolders && matchFolders[1]) return matchFolders[1];
+    const matchIdQuery = texto.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (matchIdQuery && matchIdQuery[1]) return matchIdQuery[1];
+    if (/^[a-zA-Z0-9_-]{20,}$/.test(texto)) return texto;
+    return '';
+}
+
+/**
+ * Valida a pasta criando e removendo um arquivo de teste.
+ */
+function validarPastaRelatoriosUsuarioSistemaRH(folderId) {
+    try {
+        const pasta = DriveApp.getFolderById(folderId);
+        const nomeArquivo = 'teste_conexao_rh_' + new Date().getTime() + '.txt';
+        const arquivo = pasta.createFile(nomeArquivo, 'Teste de validação de escrita do Sistema RH');
+        DriveApp.getFileById(arquivo.getId()).setTrashed(true);
+        return true;
+    } catch (e) {
+        if (e.message.indexOf('not found') !== -1) {
+            throw new Error('A pasta não foi encontrada ou não está acessível para sua conta Google.');
+        }
+        throw new Error('Você não tem permissão de escrita nesta pasta.');
+    }
+}
+
+/**
+ * Salva a configuração no backend.
+ */
+function salvarPastaRelatoriosUsuarioSistemaRH(metadata) {
+    return chamarApiUsuarioSistemaRH('/me/report-folder', 'post', metadata);
+}
+
+/**
+ * Obtém a pasta configurada do backend.
+ */
+function obterPastaRelatoriosUsuarioSistemaRH() {
+    const res = chamarApiUsuarioSistemaRH('/me/report-folder', 'get');
+    if (res.success && res.data) {
+        try {
+            return DriveApp.getFolderById(res.data.folder_id);
+        } catch (e) {
+            Logger.log('[Pasta Relatórios] Erro ao acessar pasta salva: ' + e.message);
+            return null;
+        }
+    }
+    return null;
+}
+
+/**
+ * Cria ou recupera a pasta padrão no Drive do usuário.
+ */
+function criarOuObterPastaPadraoRelatoriosSistemaRH() {
+    const pastas = DriveApp.getFoldersByName(SISTEMA_RH_RELATORIOS_FOLDER_NAME);
+    if (pastas.hasNext()) return pastas.next();
+    return DriveApp.createFolder(SISTEMA_RH_RELATORIOS_FOLDER_NAME);
+}
+
+/**
+ * SOBRESCREVE a função de exportação para usar a pasta do usuário.
+ */
+function exportarAbaParaPDF(nomeAba) {
+    try {
+        // 1. Verificar pasta no backend
+        const pastaDestino = obterPastaRelatoriosUsuarioSistemaRH();
+        
+        if (!pastaDestino) {
+            return {
+                success: false,
+                error: 'Configure sua pasta de relatórios antes de exportar PDFs. Use o menu "Configurações > Configurar Pasta de Relatórios".'
+            };
+        }
+
+        // 2. Gerar Blob
+        const resPdf = gerarPdfBlobDaAba(nomeAba);
+        if (!resPdf.success) return resPdf;
+
+        const agora = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd_HH-mm-ss');
+        const nomeSeguro = String(nomeAba || 'Relatorio').replace(/[\\/:*?"<>|#%{}[\]~&]/g, '-').trim();
+        const nomeArquivo = nomeSeguro + ' - Relatorio - ' + agora + '.pdf';
+        
+        const blobFinal = resPdf.blob.setName(nomeArquivo);
+
+        // 3. Salvar na pasta do usuário
+        const file = pastaDestino.createFile(blobFinal);
+
+        return {
+            success: true,
+            url: file.getUrl(),
+            id: file.getId(),
+            folderId: pastaDestino.getId(),
+            folderName: pastaDestino.getName()
+        };
+    } catch (e) {
+        Logger.log('[Exportar PDF] Erro: ' + e.message);
+        return { success: false, error: e.message };
+    }
 }
 

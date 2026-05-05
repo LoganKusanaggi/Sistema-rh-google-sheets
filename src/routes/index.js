@@ -12,9 +12,11 @@ const relatoriosController = require('../controllers/relatoriosController');
 const planosController = require('../controllers/planosController');
 const dashboardController = require('../controllers/dashboardController');
 const adminUserController = require('../controllers/adminUserController');
+const userReportFolderController = require('../controllers/userReportFolderController');
 
 // Middlewares
 const { authAdminGoogle, requireAdminGoogle } = require('../middlewares/authAdminGoogle');
+const { validateGoogleIdentity } = require('../middlewares/authGoogleIdentity');
 
 // Rotas Externas
 const dependentesRoutes = require('./dependentesRoutes');
@@ -28,6 +30,10 @@ router.get('/health', (req, res) => {
         version: '2.1.0'
     });
 });
+
+// 1.1 ROTAS DE USUÁRIO AUTENTICADO (Qualquer usuário com Google Identity)
+router.get('/me/report-folder', validateGoogleIdentity, userReportFolderController.obterMinhaPasta);
+router.post('/me/report-folder', validateGoogleIdentity, userReportFolderController.salvarMinhaPasta);
 
 // 2. ROTAS DE NEGÓCIO (Colaboradores, Folha, etc.)
 router.get('/colaboradores', colaboradorController.listarTodos);

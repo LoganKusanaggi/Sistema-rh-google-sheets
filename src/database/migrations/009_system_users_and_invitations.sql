@@ -43,7 +43,7 @@ DO $$
 BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'admin_users') THEN
         INSERT INTO system_users (email, role, status, created_at)
-        SELECT email, 'OWNER', 'ACTIVE', created_at
+        SELECT email, 'OWNER', 'ACTIVE', criado_em
         FROM admin_users
         ON CONFLICT (tenant_id, email) DO NOTHING;
     END IF;

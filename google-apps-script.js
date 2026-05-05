@@ -1177,7 +1177,7 @@ function enviarBeneficiosParaAPI() {
 
     // Se não tem metadados (Lançamento ou Snapshot antigo), extrair do nome
     if (!metadados) {
-        const match = nomeAba.match(/V\.\s(\d{4})-(\d{2})-\d{2}/) || nomeAba.match(/(\d{{1,2})[-/](\d{4})/);
+        const match = nomeAba.match(/V\.\s(\d{4})-(\d{2})-\d{2}/) || nomeAba.match(/(\d{1,2})[-/](\d{4})/);
         // Tenta pegar periodo, mas sem ID de snapshot
         // Lógica de fallback simples
         // Para Lançamento Benefícios Jan-2026:
@@ -1729,178 +1729,6 @@ function validarCPF(cpf) {
 function formatarCPFParaExibicao(cpf) {
     cpf = cpf.replace(/\D/g, '');
     return cpf.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
-}
-
-// Mantem apenas numeros para reaproveitar em datas, CPF e competencias.
-function somenteDigitos(valor) {
-    if (valor === null || valor === undefined) return '';
-    return String(valor).replace(/\D/g, '');
-}
-
-// Verifica se a combinacao dia/mes/ano existe de verdade no calendario.
-function validarPartesDataBR(dia, mes, ano) {
-    if (!dia || !mes || !ano) return false;
-    if (mes < 1 || mes > 12) return false;
-    if (dia < 1 || dia > 31) return false;
-    if (ano < 1000 || ano > 9999) return false;
-
-    const data = new Date(ano, mes - 1, dia);
-    return data.getFullYear() === ano &&
-        data.getMonth() === mes - 1 &&
-        data.getDate() === dia;
-}
-
-function montarDataBR(dia, mes, ano) {
-    return String(dia).padStart(2, '0') + '/' + String(mes).padStart(2, '0') + '/' + String(ano);
-}
-
-function montarDataISO(dia, mes, ano) {
-    return String(ano) + '-' + String(mes).padStart(2, '0') + '-' + String(dia).padStart(2, '0');
-}
-
-function extrairPartesDataBR(valor) {
-    if (valor === null || valor === undefined || valor === '') return null;
-
-    if (Object.prototype.toString.call(valor) === '[object Date]') {
-        if (isNaN(valor.getTime())) return null;
-        return {
-            dia: valor.getDate(),
-            mes: valor.getMonth() + 1,
-            ano: valor.getFullYear()
-        };
-    }
-
-    const textoOriginal = String(valor).trim();
-    if (!textoOriginal) return null;
-
-    const texto = textoOriginal.split('T')[0].split(' ')[0];
-    const somenteNums = somenteDigitos(textoOriginal);
-    let match = null;
-    let dia = 0;
-    let mes = 0;
-    let ano = 0;
-
-    if (/^\d{8}$/.test(somenteNums)) {
-        dia = parseInt(somenteNums.substring(0, 2), 10);
-        mes = parseInt(somenteNums.substring(2, 4), 10);
-        ano = parseInt(somenteNums.substring(4, 8), 10);
-    } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(texto)) {
-        match = texto.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-        dia = parseInt(match[1], 10);
-        mes = parseInt(match[2], 10);
-        ano = parseInt(match[3], 10);
-    } else if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
-        match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-        ano = parseInt(match[1], 10);
-        mes = parseInt(match[2], 10);
-        dia = parseInt(match[3], 10);
-    } else {
-        return null;
-    }
-
-    if (!validarPartesDataBR(dia, mes, ano)) return null;
-
-    return { dia: dia, mes: mes, ano: ano };
-}
-
-// Normaliza qualquer entrada valida para exibicao brasileira DD/MM/AAAA.
-function normalizarDataBR(valor) {
-    const partes = extrairPartesDataBR(valor);
-    if (!partes) return '';
-    return montarDataBR(partes.dia, partes.mes, partes.ano);
-}
-
-// Converte a interpretacao brasileira da data para ISO usado pela API.
-function converterDataBRParaISO(valor) {
-    const partes = extrairPartesDataBR(valor);
-    if (!partes) return null;
-    return montarDataISO(partes.dia, partes.mes, partes.ano);
-}
-
-// Faz o parse de competencia MM/AAAA ou MMAAAA com validacao simples.
-function parseCompetenciaBR(valor) {
-    if (valor === null || valor === undefined || valor === '') return null;
-
-    const texto = String(valor).trim();
-    if (!texto) return null;
-
-    const somenteNums = somenteDigitos(texto);
-    let mes = 0;
-    let ano = 0;
-    let match = null;
-
-    if (/^\d{6}$/.test(somenteNums)) {
-        mes = parseInt(somenteNums.substring(0, 2), 10);
-        ano = parseInt(somenteNums.substring(2, 6), 10);
-    } else if (/^\d{1,2}[\/-]\d{4}$/.test(texto)) {
-        match = texto.match(/^(\d{1,2})[\/-](\d{4})$/);
-        mes = parseInt(match[1], 10);
-        ano = parseInt(match[2], 10);
-    } else {
-        return null;
-    }
-
-    if (mes < 1 || mes > 12) return null;
-    if (ano < 1000 || ano > 9999) return null;
-
-    return { mes: mes, ano: ano };
-}
-
-function normalizarCompetenciaBR(valor) {
-    const competencia = parseCompetenciaBR(valor);
-    if (!competencia) return '';
-    return String(competencia.mes).padStart(2, '0') + '/' + String(competencia.ano);
-}
-
-function valorDataEmBranco(valor) {
-    return valor === null || valor === undefined || String(valor).trim() === '';
-}
-
-// Converte datas opcionais/obrigatorias para ISO sem deixar string invalida passar.
-function validarEConverterDataParaPayload(valor, nomeCampo, obrigatorio) {
-    if (valorDataEmBranco(valor)) {
-        if (obrigatorio) {
-            throw new Error('Preencha ' + nomeCampo + '.');
-        }
-        return null;
-    }
-
-    const iso = converterDataBRParaISO(valor);
-    if (!iso) {
-        throw new Error(nomeCampo + ' invalida. Use DDMMAAAA ou DD/MM/AAAA.');
-    }
-
-    return iso;
-}
-
-function normalizarPayloadColaborador(colaborador) {
-    const payload = JSON.parse(JSON.stringify(colaborador || {}));
-
-    if (!valorDataEmBranco(payload.data_nascimento)) {
-        payload.data_nascimento = validarEConverterDataParaPayload(payload.data_nascimento, 'a data de nascimento', false);
-    } else {
-        delete payload.data_nascimento;
-    }
-
-    if (!valorDataEmBranco(payload.data_admissao)) {
-        payload.data_admissao = validarEConverterDataParaPayload(payload.data_admissao, 'a data de admissao', false);
-    } else {
-        delete payload.data_admissao;
-    }
-
-    return payload;
-}
-
-function normalizarPayloadDependente(dependente) {
-    const payload = JSON.parse(JSON.stringify(dependente || {}));
-
-    if (!valorDataEmBranco(payload.data_nasc)) {
-        payload.data_nasc = validarEConverterDataParaPayload(payload.data_nasc, 'a data de nascimento do dependente', false);
-    } else {
-        delete payload.data_nasc;
-    }
-
-    return payload;
 }
 
 
@@ -4342,6 +4170,1739 @@ function excluirSelecionados() {
 }
 
 // =====================================================
+// OVERRIDES DE DATA/COMPETENCIA BR
+// =====================================================
+
+// Mantem apenas numeros para reaproveitar em datas e competencias.
+function somenteDigitos(valor) {
+    if (valor === null || valor === undefined) return '';
+    return String(valor).replace(/\D/g, '');
+}
+
+// Valida se a data existe de verdade no calendario.
+function validarPartesDataBR(dia, mes, ano) {
+    if (!dia || !mes || !ano) return false;
+    if (dia < 1 || dia > 31) return false;
+    if (mes < 1 || mes > 12) return false;
+    if (ano < 1000 || ano > 9999) return false;
+
+    var data = new Date(ano, mes - 1, dia);
+    return data.getFullYear() === ano &&
+        data.getMonth() === mes - 1 &&
+        data.getDate() === dia;
+}
+
+function montarDataBR(dia, mes, ano) {
+    return String(dia).padStart(2, '0') + '/' + String(mes).padStart(2, '0') + '/' + String(ano);
+}
+
+function montarDataISO(dia, mes, ano) {
+    return String(ano) + '-' + String(mes).padStart(2, '0') + '-' + String(dia).padStart(2, '0');
+}
+
+// Centraliza o parse de datas em ordem brasileira DD/MM/AAAA.
+function extrairPartesDataBR(valor) {
+    if (valor === null || valor === undefined || valor === '') return null;
+
+    if (Object.prototype.toString.call(valor) === '[object Date]') {
+        if (isNaN(valor.getTime())) return null;
+        return {
+            dia: valor.getDate(),
+            mes: valor.getMonth() + 1,
+            ano: valor.getFullYear()
+        };
+    }
+
+    var textoOriginal = String(valor).trim();
+    if (!textoOriginal) return null;
+
+    var texto = textoOriginal.split('T')[0].split(' ')[0];
+    var digitos = somenteDigitos(textoOriginal);
+    var match = null;
+    var dia = 0;
+    var mes = 0;
+    var ano = 0;
+
+    if (/^\d{8}$/.test(digitos)) {
+        dia = parseInt(digitos.substring(0, 2), 10);
+        mes = parseInt(digitos.substring(2, 4), 10);
+        ano = parseInt(digitos.substring(4, 8), 10);
+    } else if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{4}$/.test(texto)) {
+        match = texto.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+        dia = parseInt(match[1], 10);
+        mes = parseInt(match[2], 10);
+        ano = parseInt(match[3], 10);
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(texto)) {
+        match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        ano = parseInt(match[1], 10);
+        mes = parseInt(match[2], 10);
+        dia = parseInt(match[3], 10);
+    } else {
+        return null;
+    }
+
+    if (!validarPartesDataBR(dia, mes, ano)) return null;
+
+    return { dia: dia, mes: mes, ano: ano };
+}
+
+// Retorna a data no formato canonico de exibicao DD/MM/AAAA.
+function normalizarDataBR(valor) {
+    var partes = extrairPartesDataBR(valor);
+    if (!partes) return '';
+    return montarDataBR(partes.dia, partes.mes, partes.ano);
+}
+
+// Retorna a data no formato canonico de API YYYY-MM-DD.
+function converterDataBRParaISO(valor) {
+    var partes = extrairPartesDataBR(valor);
+    if (!partes) return null;
+    return montarDataISO(partes.dia, partes.mes, partes.ano);
+}
+
+// Faz o parse centralizado de competencia MM/AAAA ou MMAAAA.
+function parseCompetenciaBR(valor) {
+    if (valor === null || valor === undefined || valor === '') return null;
+
+    var texto = String(valor).trim();
+    if (!texto) return null;
+
+    var digitos = somenteDigitos(texto);
+    var match = null;
+    var mes = 0;
+    var ano = 0;
+
+    if (/^\d{6}$/.test(digitos)) {
+        mes = parseInt(digitos.substring(0, 2), 10);
+        ano = parseInt(digitos.substring(2, 6), 10);
+    } else if (/^\d{1,2}[\/-]\d{4}$/.test(texto)) {
+        match = texto.match(/^(\d{1,2})[\/-](\d{4})$/);
+        mes = parseInt(match[1], 10);
+        ano = parseInt(match[2], 10);
+    } else {
+        return null;
+    }
+
+    if (mes < 1 || mes > 12) return null;
+    if (ano < 1000 || ano > 9999) return null;
+
+    return { mes: mes, ano: ano };
+}
+
+function normalizarCompetenciaBR(valor) {
+    var competencia = parseCompetenciaBR(valor);
+    if (!competencia) return '';
+    return String(competencia.mes).padStart(2, '0') + '/' + String(competencia.ano);
+}
+
+function valorDataEmBranco(valor) {
+    return valor === null || valor === undefined || String(valor).trim() === '';
+}
+
+function criarDateLocalPorValor(valor) {
+    var partes = extrairPartesDataBR(valor);
+    if (!partes) return null;
+    return new Date(partes.ano, partes.mes - 1, partes.dia);
+}
+
+function calcularIdadePorValor(valor) {
+    var nasc = criarDateLocalPorValor(valor);
+    if (!nasc) return '';
+
+    var hoje = new Date();
+    var idade = hoje.getFullYear() - nasc.getFullYear();
+    var diferencaMes = hoje.getMonth() - nasc.getMonth();
+    if (diferencaMes < 0 || (diferencaMes === 0 && hoje.getDate() < nasc.getDate())) {
+        idade--;
+    }
+    return idade;
+}
+
+function obterDataBrSegura(valor) {
+    if (valorDataEmBranco(valor)) return '';
+    return normalizarDataBR(valor) || '';
+}
+
+function obterPrimeiroDiaCompetenciaBR(periodo) {
+    return montarDataBR(1, periodo.mes, periodo.ano);
+}
+
+function obterDataGeracaoISO(valor) {
+    var data = new Date(valor);
+    if (isNaN(data.getTime())) return '';
+    return Utilities.formatDate(data, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+}
+
+function validarEConverterDataParaPayload(valor, nomeCampo, obrigatorio) {
+    if (valorDataEmBranco(valor)) {
+        if (obrigatorio) throw new Error('Preencha ' + nomeCampo + '.');
+        return null;
+    }
+
+    var iso = converterDataBRParaISO(valor);
+    if (!iso) throw new Error(nomeCampo + ' inválida. Use DDMMAAAA ou DD/MM/AAAA.');
+    return iso;
+}
+
+function normalizarPayloadColaborador(colaborador) {
+    var payload = JSON.parse(JSON.stringify(colaborador || {}));
+
+    if (!valorDataEmBranco(payload.data_nascimento)) {
+        payload.data_nascimento = validarEConverterDataParaPayload(payload.data_nascimento, 'a data de nascimento', false);
+    } else {
+        delete payload.data_nascimento;
+    }
+
+    if (!valorDataEmBranco(payload.data_admissao)) {
+        payload.data_admissao = validarEConverterDataParaPayload(payload.data_admissao, 'a data de admissão', false);
+    } else {
+        delete payload.data_admissao;
+    }
+
+    return payload;
+}
+
+function normalizarPayloadDependente(dependente) {
+    var payload = JSON.parse(JSON.stringify(dependente || {}));
+
+    if (!valorDataEmBranco(payload.data_nasc)) {
+        payload.data_nasc = validarEConverterDataParaPayload(payload.data_nasc, 'a data de nascimento do dependente', false);
+    } else {
+        delete payload.data_nasc;
+    }
+
+    return payload;
+}
+
+function resolverCompetenciaDaAba(nomeAba) {
+    var meses = { Jan: 1, Fev: 2, Mar: 3, Abr: 4, Mai: 5, Jun: 6, Jul: 7, Ago: 8, Set: 9, Out: 10, Nov: 11, Dez: 12 };
+    var matchMes = nomeAba.match(/([A-Za-z]{3})-(\d{4})/);
+    if (matchMes && meses[matchMes[1]]) {
+        return { mes: meses[matchMes[1]], ano: parseInt(matchMes[2], 10) };
+    }
+
+    var matchCompetencia = nomeAba.match(/(\d{1,2}[\/-]\d{4})/);
+    if (matchCompetencia) return parseCompetenciaBR(matchCompetencia[1]);
+
+    var matchSnapshot = nomeAba.match(/V\.\s*(\d{4})-(\d{2})-\d{2}/);
+    if (matchSnapshot) {
+        return { mes: parseInt(matchSnapshot[2], 10), ano: parseInt(matchSnapshot[1], 10) };
+    }
+
+    return null;
+}
+
+function formatarDataInteligente(data) {
+    if (!data) return '';
+    return normalizarDataBR(data) || data;
+}
+
+function pedirPeriodo() {
+    var ui = SpreadsheetApp.getUi();
+    var dataAtual = new Date();
+    var mesAtual = dataAtual.getMonth() + 1;
+    var anoAtual = dataAtual.getFullYear();
+    var resposta = ui.prompt(
+        'Período do Relatório',
+        'Digite o período no formato MM/AAAA ou MMAAAA.\nEx: ' + String(mesAtual).padStart(2, '0') + '/' + anoAtual + ' ou ' + String(mesAtual).padStart(2, '0') + String(anoAtual),
+        ui.ButtonSet.OK_CANCEL
+    );
+
+    if (resposta.getSelectedButton() !== ui.Button.OK) return null;
+
+    var competencia = parseCompetenciaBR(resposta.getResponseText().trim());
+    if (!competencia) {
+        ui.alert('Formato inválido', 'Use MM/AAAA ou MMAAAA. Ex: 04/2026 ou 042026.', ui.ButtonSet.OK);
+        return null;
+    }
+
+    return competencia;
+}
+
+function criarPlanilhaLancamentoFolha(cpfs, periodo, dadosMap, dadosApi) {
+    if (!dadosMap) dadosMap = null;
+    if (!dadosApi) dadosApi = [];
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    var nomeAba = 'LanÇõamento Folha ' + meses[periodo.mes - 1] + '-' + periodo.ano;
+    var sheet = ss.getSheetByName(nomeAba);
+
+    if (!sheet) {
+        sheet = ss.insertSheet(nomeAba);
+    } else {
+        var ui = SpreadsheetApp.getUi();
+        var respAba = ui.alert('Aba já existe', 'A aba "' + nomeAba + '" já existe. Deseja limpá-la e recriar?', ui.ButtonSet.YES_NO);
+        if (respAba === ui.Button.NO) {
+            ss.setActiveSheet(sheet);
+            return;
+        }
+        sheet.clear();
+    }
+
+    var sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
+    var dadosColab = sheetColab.getDataRange().getValues();
+    var mapNomes = {};
+    for (var i = 5; i < dadosColab.length; i++) {
+        if (dadosColab[i][1]) {
+            mapNomes[String(dadosColab[i][1]).replace(/\D/g, '')] = dadosColab[i][2];
+        }
+    }
+
+    var headers = [
+        'CPF', 'Nome', 'Mês', 'Ano',
+        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
+        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
+        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
+        'Odont. Func.', 'Odont. Dep.',
+        'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
+    ];
+
+    var linhas = cpfs.map(function (cpf) {
+        var cpfLimpo = String(cpf).replace(/\D/g, '');
+        var nome = mapNomes[cpfLimpo] || 'Não encontrado';
+        var historico = {};
+        if (dadosMap && dadosMap[cpfLimpo] && dadosMap[cpfLimpo].length > 0) {
+            historico = dadosMap[cpfLimpo][0];
+        }
+
+        var apiData = {};
+        for (var idx = 0; idx < dadosApi.length; idx++) {
+            if (String(dadosApi[idx].cpf).replace(/\D/g, '') === cpfLimpo) {
+                apiData = dadosApi[idx];
+                break;
+            }
+        }
+
+        var dataNasc = apiData.data_nascimento || historico.data_nascimento || '';
+        return [
+            formatarCPFParaExibicao(cpf),
+            nome,
+            periodo.mes,
+            periodo.ano,
+            historico.local_trabalho || apiData.local_trabalho || '',
+            obterDataBrSegura(historico.data_admissao || apiData.data_admissao),
+            historico.socio || 0,
+            parseFloat(historico.salario_base || apiData.salario_base || 0),
+            historico.cargo || apiData.cargo || '',
+            historico.departamento || apiData.departamento || '',
+            historico.convenio_escolhido || apiData.convenio_escolhido || '',
+            obterDataBrSegura(dataNasc),
+            calcularIdadePorValor(dataNasc),
+            historico.faixa_etaria || apiData.faixa_etaria || '',
+            parseFloat(historico.vl_100_amil || apiData.vl_100_amil || 0),
+            parseFloat(historico.vl_empresa_amil || apiData.vl_empresa_amil || 0),
+            parseFloat(historico.vl_func_amil || apiData.vl_func_amil || 0),
+            parseFloat(historico.amil_saude_dep || apiData.amil_saude_dep || 0),
+            parseFloat(historico.odont_func || apiData.odont_func || 0),
+            parseFloat(historico.odont_dep || apiData.odont_dep || 0),
+            historico.status_pagamento || 'pendente',
+            obterDataBrSegura(historico.data_pagamento),
+            historico.observacoes || ''
+        ];
+    });
+
+    if (linhas.length === 0) {
+        SpreadsheetApp.getUi().alert('Erro', 'Nenhum dado gerado para os CPFs selecionados.', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
+    sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    sheet.setColumnWidth(2, 200);
+    sheet.setColumnWidth(5, 110);
+    sheet.setColumnWidth(10, 150);
+    sheet.setFrozenRows(1);
+    sheet.setFrozenColumns(2);
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('Planilha Criada!', 'Preencha os valores na aba "' + nomeAba + '".\n\nQuando terminar, vá no menu "Lançamentos" > "Enviar Folha para Sistema".', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function enviarFolhaParaAPI() {
+    var sheet = SpreadsheetApp.getActiveSheet();
+    var nomeAba = sheet.getName();
+    var isFolha = nomeAba.toLowerCase().indexOf('folha') > -1;
+    var isSnapshot = nomeAba.indexOf('V.') === 0;
+    var isLancamento = nomeAba.indexOf('LanÇõamento') > -1;
+
+    if (!isFolha || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('Aba incorreta', 'Você deve estar na aba "Lançamento Folha" ou "Histórico Folha" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    var ui = SpreadsheetApp.getUi();
+    var resp = ui.alert('Confirmar envio', 'Deseja enviar os dados desta planilha para o sistema? Isso atualizará ou criará os registros de folha.', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.NO) return;
+
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) {
+        ui.alert('Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK);
+        return;
+    }
+
+    var headers = data[0].map(function (h) { return String(h).trim().toLowerCase(); });
+
+    function getVal(row, keywords) {
+        var keys = Object.prototype.toString.call(keywords) === '[object Array]' ? keywords : [keywords];
+        var colIndex = -1;
+        var i = 0;
+        var k = '';
+
+        for (i = 0; i < keys.length; i++) {
+            k = keys[i];
+            colIndex = headers.findIndex(function (h) { return h === k || h.indexOf(k) > -1; });
+            if (colIndex > -1) break;
+        }
+
+        if (colIndex === -1) {
+            var normalizedHeaders = headers.map(function (h) { return h.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); });
+            for (i = 0; i < keys.length; i++) {
+                k = String(keys[i]).normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                colIndex = normalizedHeaders.findIndex(function (h) { return h === k || h.indexOf(k) > -1; });
+                if (colIndex > -1) break;
+            }
+        }
+
+        if (colIndex === -1) return null;
+        return row[colIndex];
+    }
+
+    function getDateVal(row, keywords, nomeCampo, numeroLinha, obrigatorio) {
+        var val = getVal(row, keywords);
+        if (valorDataEmBranco(val)) {
+            if (obrigatorio) throw new Error('Linha ' + numeroLinha + ': preencha ' + nomeCampo + '.');
+            return null;
+        }
+
+        var iso = converterDataBRParaISO(val);
+        if (!iso) throw new Error('Linha ' + numeroLinha + ': ' + nomeCampo + ' inválida. Use DDMMAAAA ou DD/MM/AAAA.');
+        return iso;
+    }
+
+    var folhas = [];
+    for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        var numeroLinha = i + 1;
+        var cpfRaw = getVal(row, 'cpf');
+        if (!cpfRaw) continue;
+
+        folhas.push({
+            cpf: String(cpfRaw).replace(/\D/g, ''),
+            mes_referencia: getVal(row, ['mês', 'mes', 'mes_referencia']) || 0,
+            ano_referencia: getVal(row, ['ano', 'ano_referencia']) || 0,
+            local_trabalho: getVal(row, ['local', 'local_trabalho']),
+            data_admissao: getDateVal(row, ['admissão', 'admissao', 'data_admissao'], 'a data de admissão', numeroLinha, false),
+            socio: getVal(row, 'sócio') || 0,
+            novo_salario: getVal(row, ['novo salário', 'novo_salario']) || 0,
+            cargo: getVal(row, 'cargo'),
+            departamento: getVal(row, ['departamento', 'depto']),
+            convenio_escolhido: getVal(row, ['convênio', 'convenio']),
+            data_nascimento: getDateVal(row, ['dn', 'nascimento', 'data_nascimento'], 'a data de nascimento', numeroLinha, false),
+            idade: getVal(row, 'idade') || 0,
+            faixa_etaria: getVal(row, ['faixa', 'faixa etária', 'faixa_etaria']),
+            vl_100_amil: getVal(row, ['vl 100% amil', 'vl_100_amil']) || 0,
+            vl_empresa_amil: getVal(row, ['vl empresa amil', 'vl_empresa_amil']) || 0,
+            vl_func_amil: getVal(row, ['vl func. amil', 'vl_func_amil']) || 0,
+            amil_saude_dep: getVal(row, ['amil saúde dep', 'amil_saude_dep']) || 0,
+            odont_func: getVal(row, ['odont. func.', 'odont_func']) || 0,
+            odont_dep: getVal(row, ['odont. dep.', 'odont_dep']) || 0,
+            salario_base: getVal(row, ['salário base', 'salario base', 'salario_base']) || 0,
+            status_pagamento: String(getVal(row, ['status', 'status_pagamento']) || 'pendente').toLowerCase(),
+            data_pagamento: getDateVal(row, ['data pagto', 'data pagamento', 'data_pagamento'], 'a data de pagamento', numeroLinha, false),
+            observacoes: getVal(row, ['obs', 'observacoes', 'observações']) || ''
+        });
+    }
+
+    try {
+        var url = CONFIG.API_URL + '/folha/batch';
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ folhas: folhas }),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        var resultado = JSON.parse(response.getContentText());
+        if (!resultado.success) throw new Error(resultado.error);
+
+        ui.alert('Sucesso!', resultado.message || 'Folhas enviadas com sucesso.', ui.ButtonSet.OK);
+        var respDel = ui.alert('Limpeza', 'Deseja excluir esta aba para manter a planilha organizada?', ui.ButtonSet.YES_NO);
+        if (respDel === ui.Button.YES) {
+            try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+        }
+    } catch (erro) {
+        ui.alert('Erro', 'Erro ao enviar folhas: ' + erro.message, ui.ButtonSet.OK);
+    }
+}
+
+function enviarBeneficiosParaAPI() {
+    var sheet = SpreadsheetApp.getActiveSheet();
+    var nomeAba = sheet.getName();
+    var ui = SpreadsheetApp.getUi();
+    var isBeneficios = nomeAba.toLowerCase().indexOf('benef') > -1;
+    var isSnapshot = nomeAba.indexOf('V.') === 0;
+    var isLancamento = nomeAba.indexOf('LanÇõamento') > -1;
+
+    if (!isBeneficios || (!isSnapshot && !isLancamento)) {
+        ui.alert('Aba incorreta', 'Esta não é uma aba de Benefícios (Lançamento ou Histórico).', ui.ButtonSet.OK);
+        return;
+    }
+
+    var metadados = null;
+    try {
+        var metaStr = sheet.getRange('A1').getValue();
+        if (typeof metaStr === 'string' && metaStr.indexOf('{') === 0) {
+            metadados = JSON.parse(metaStr);
+        }
+    } catch (e) { }
+
+    if (!metadados) {
+        var periodoNome = resolverCompetenciaDaAba(nomeAba);
+        if (periodoNome) {
+            metadados = { mes_referencia: periodoNome.mes, ano_referencia: periodoNome.ano, tipo: 'beneficios' };
+        }
+    }
+
+    if (!metadados || !metadados.mes_referencia) {
+        ui.alert('Erro de competência', 'Não foi possível identificar mês/ano. Verifique o nome da aba.', ui.ButtonSet.OK);
+        return;
+    }
+
+    var resp = ui.alert('Confirmar', 'Enviar benefícios de ' + normalizarCompetenciaBR(metadados.mes_referencia + '/' + metadados.ano_referencia) + '?\n\n' + (metadados.snapshot_id ? 'Atualizando snapshot existente.' : 'Novo lançamento será criado.'), ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.NO) return;
+
+    var startRow = 13;
+    var lastRow = sheet.getLastRow();
+    if (lastRow < startRow) {
+        ui.alert('Sem dados', 'A planilha está vazia.', ui.ButtonSet.OK);
+        return;
+    }
+
+    var data = sheet.getRange(startRow, 1, lastRow - startRow + 1, 6).getValues();
+    var beneficios = [];
+    var sheetColab = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.ABAS.COLABORADORES);
+    var dadosColab = sheetColab.getDataRange().getValues();
+    var mapNomeParaCPF = {};
+    for (var i = 5; i < dadosColab.length; i++) {
+        mapNomeParaCPF[String(dadosColab[i][2]).trim().toUpperCase()] = String(dadosColab[i][1]).replace(/\D/g, '');
+    }
+
+    var chavesUnicas = {};
+    data.forEach(function (row) {
+        var nome = String(row[1]).trim().toUpperCase();
+        var cpf = mapNomeParaCPF[nome];
+        if (!cpf) return;
+
+        var valAlim = parseFloat(row[4]);
+        var valTransp = parseFloat(row[5]);
+
+        if (valAlim > 0 && !chavesUnicas[cpf + '-vale_alimentacao']) {
+            beneficios.push({
+                cpf: cpf,
+                mes_referencia: metadados.mes_referencia,
+                ano_referencia: metadados.ano_referencia,
+                tipo_beneficio: 'vale_alimentacao',
+                valor: valAlim,
+                quantidade: 1,
+                valor_total: valAlim,
+                status: 'ativo'
+            });
+            chavesUnicas[cpf + '-vale_alimentacao'] = true;
+        }
+
+        if (valTransp > 0 && !chavesUnicas[cpf + '-vale_transporte']) {
+            beneficios.push({
+                cpf: cpf,
+                mes_referencia: metadados.mes_referencia,
+                ano_referencia: metadados.ano_referencia,
+                tipo_beneficio: 'vale_transporte',
+                valor: valTransp,
+                quantidade: 1,
+                valor_total: valTransp,
+                status: 'ativo'
+            });
+            chavesUnicas[cpf + '-vale_transporte'] = true;
+        }
+    });
+
+    if (beneficios.length === 0) {
+        ui.alert('Nada a enviar', 'Nenhum valor > 0 encontrado nos colaboradores identificados.', ui.ButtonSet.OK);
+        return;
+    }
+
+    try {
+        var url = CONFIG.API_URL + '/beneficios/batch';
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ beneficios: beneficios }),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        var res = JSON.parse(response.getContentText());
+        if (!res.success) throw new Error(res.error);
+
+        ui.alert('Sucesso!', res.message, ui.ButtonSet.OK);
+        var respDel = ui.alert('Limpeza', 'Deseja excluir esta aba?', ui.ButtonSet.YES_NO);
+        if (respDel === ui.Button.YES) {
+            try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+        }
+    } catch (e) {
+        ui.alert('Erro', e.message, ui.ButtonSet.OK);
+    }
+}
+
+function criarPlanilhaVariavel(cpfs, periodo, dadosMap) {
+    if (!dadosMap) dadosMap = null;
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    var nomeAba = 'LanÇõamento VariÇ­vel ' + meses[periodo.mes - 1] + '-' + periodo.ano;
+    var sheet = ss.getSheetByName(nomeAba);
+
+    if (!sheet) {
+        sheet = ss.insertSheet(nomeAba);
+    } else {
+        var ui = SpreadsheetApp.getUi();
+        var respAba = ui.alert('Aba já existe', 'A aba "' + nomeAba + '" já existe. Deseja limpá-la e recriar?', ui.ButtonSet.YES_NO);
+        if (respAba === ui.Button.NO) {
+            ss.setActiveSheet(sheet);
+            return;
+        }
+        sheet.clear();
+    }
+
+    var sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
+    var dadosColab = sheetColab.getDataRange().getValues();
+    var mapDados = {};
+    for (var i = 5; i < dadosColab.length; i++) {
+        mapDados[String(dadosColab[i][1]).replace(/\D/g, '')] = { nome: dadosColab[i][2], cargo: dadosColab[i][3] };
+    }
+
+    var headers = ['CPF', 'Nome', 'Cargo', 'Tipo Variável', 'Valor (R$)', 'Data Referência', 'Observação'];
+    var dataPadrao = obterPrimeiroDiaCompetenciaBR(periodo);
+    var linhas = cpfs.map(function (cpf) {
+        var cadastro = mapDados[cpf] || { nome: 'Não encontrado', cargo: '-' };
+        var item = {};
+        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) item = dadosMap[cpf][0];
+        return [
+            formatarCPFParaExibicao(cpf),
+            cadastro.nome,
+            cadastro.cargo,
+            item.tipo_variavel || 'comissao',
+            item.valor || 0,
+            obterDataBrSegura(item.data_referencia) || dataPadrao,
+            item.observacoes || ''
+        ];
+    });
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#6aa84f').setFontColor('white').setHorizontalAlignment('center');
+    if (linhas.length > 0) {
+        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+        sheet.getRange(2, 5, linhas.length, 1).setNumberFormat('R$ #,##0.00');
+        sheet.getRange(2, 4, linhas.length, 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['comissao', 'bonus', 'plr', 'gratificacao', 'premio', 'dsr_variavel']).build());
+    }
+    sheet.setColumnWidth(1, 130);
+    sheet.setColumnWidth(2, 250);
+    sheet.setColumnWidth(3, 150);
+    sheet.setColumnWidth(4, 120);
+    sheet.setColumnWidth(5, 100);
+    sheet.setColumnWidth(7, 200);
+    sheet.setFrozenRows(1);
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('Planilha Variável Criada!', 'Lance as comissões/bônus na aba "' + nomeAba + '".\n\nQuando terminar: Lançamentos > Enviar Variável.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function enviarVariavelParaAPI() {
+    var sheet = SpreadsheetApp.getActiveSheet();
+    var nomeAba = sheet.getName();
+    var isVariavel = nomeAba.toLowerCase().indexOf('vari') > -1 || nomeAba.toLowerCase().indexOf('comis') > -1;
+    var isSnapshot = nomeAba.indexOf('V.') === 0;
+    var isLancamento = nomeAba.indexOf('LanÇõamento') > -1;
+
+    if (!isVariavel || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('Aba incorreta', 'Você deve estar na aba "Lançamento Variável" ou "Histórico Variável".', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    var periodo = resolverCompetenciaDaAba(nomeAba);
+    if (!periodo) {
+        periodo = pedirPeriodo();
+        if (!periodo) return;
+    }
+
+    var ui = SpreadsheetApp.getUi();
+    var resp = ui.alert('Confirmar', 'Enviar remuneração variável para ' + normalizarCompetenciaBR(periodo.mes + '/' + periodo.ano) + '?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.NO) return;
+
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) return;
+
+    var variaveis = [];
+    for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        if (!row[0]) continue;
+
+        var valor = parseFloat(row[4]);
+        if (!valor || valor <= 0) continue;
+
+        variaveis.push({
+            cpf: String(row[0]).replace(/\D/g, ''),
+            mes_referencia: periodo.mes,
+            ano_referencia: periodo.ano,
+            tipo_variavel: row[3],
+            valor: valor,
+            data_referencia: validarEConverterDataParaPayload(row[5], 'a data de referência da linha ' + (i + 1), true),
+            observacoes: row[6],
+            status: 'pendente'
+        });
+    }
+
+    if (variaveis.length === 0) {
+        ui.alert('Nada a enviar', 'Nenhum valor > 0 encontrado.', ui.ButtonSet.OK);
+        return;
+    }
+
+    try {
+        var url = CONFIG.API_URL + '/variavel/batch';
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ variaveis: variaveis }),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        var res = JSON.parse(response.getContentText());
+        if (!res.success) throw new Error(res.error);
+
+        ui.alert('Sucesso!', res.message, ui.ButtonSet.OK);
+        var respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
+        if (respDel === ui.Button.YES) {
+            try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+        }
+    } catch (e) {
+        ui.alert('Erro', e.message, ui.ButtonSet.OK);
+    }
+}
+
+function criarPlanilhaLancamentoApontamentos(cpfs, periodo, dadosMap) {
+    if (!dadosMap) dadosMap = null;
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    var nomeAba = 'LanÇõamento Apontamentos ' + meses[periodo.mes - 1] + '-' + periodo.ano;
+    var sheet = ss.getSheetByName(nomeAba);
+
+    if (!sheet) {
+        sheet = ss.insertSheet(nomeAba);
+    } else {
+        var ui = SpreadsheetApp.getUi();
+        var respAba = ui.alert('Aba já existe', 'A aba "' + nomeAba + '" já existe. Deseja limpá-la e recriar?', ui.ButtonSet.YES_NO);
+        if (respAba === ui.Button.NO) {
+            ss.setActiveSheet(sheet);
+            return;
+        }
+        sheet.clear();
+    }
+
+    var sheetColab = ss.getSheetByName(CONFIG.ABAS.COLABORADORES);
+    var dadosColab = sheetColab.getDataRange().getValues();
+    var mapNomes = {};
+    for (var i = 5; i < dadosColab.length; i++) {
+        mapNomes[String(dadosColab[i][1]).replace(/\D/g, '')] = dadosColab[i][2];
+    }
+
+    var headers = [
+        'CPF', 'Nome', 'Data', 'Tipo (presenca/falta/etc)',
+        'Hora Entrada', 'Hora Saída', 'Inicio Intervalo', 'Fim Intervalo',
+        'Horas Trab.', 'Horas Extras', 'Horas Noturnas',
+        'Falta (S/N)', 'Atraso (min)', 'Saída Anec. (min)',
+        'Justificativa', 'Atestado (S/N)', 'Status (pendente)', 'Obs'
+    ];
+
+    var dataPadrao = obterPrimeiroDiaCompetenciaBR(periodo);
+    var linhas = [];
+    cpfs.forEach(function (cpf) {
+        var nome = mapNomes[cpf] || 'Não encontrado';
+        if (dadosMap && dadosMap[cpf] && dadosMap[cpf].length > 0) {
+            dadosMap[cpf].forEach(function (item) {
+                linhas.push([
+                    formatarCPFParaExibicao(cpf), nome,
+                    obterDataBrSegura(item.data_apontamento) || dataPadrao,
+                    item.tipo_apontamento || 'presenca',
+                    item.hora_entrada || '08:00',
+                    item.hora_saida || '17:00',
+                    item.hora_inicio_intervalo || '12:00',
+                    item.hora_fim_intervalo || '13:00',
+                    item.horas_trabalhadas || 8,
+                    item.horas_extras || 0,
+                    item.horas_noturnas || 0,
+                    item.falta ? 'Sim' : 'Não',
+                    item.atraso_minutos || 0,
+                    item.saida_antecipada_minutos || 0,
+                    item.justificativa || '',
+                    item.atestado ? 'Sim' : 'Não',
+                    item.status || 'pendente',
+                    item.observacoes || ''
+                ]);
+            });
+        } else {
+            linhas.push([
+                formatarCPFParaExibicao(cpf), nome, dataPadrao, 'presenca',
+                '08:00', '17:00', '12:00', '13:00',
+                8, 0, 0, 'Não', 0, 0, '', 'Não', 'pendente', ''
+            ]);
+        }
+    });
+
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fbbc04').setFontColor('black');
+    if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    sheet.getRange(2, 4, Math.max(linhas.length, 1), 1).setDataValidation(SpreadsheetApp.newDataValidation().requireValueInList(['presenca', 'falta', 'falta_justificada', 'atestado', 'ferias', 'folga', 'licenca', 'home_office', 'hora_extra', 'banco_horas']).build());
+    sheet.setColumnWidth(2, 200);
+    sheet.setFrozenColumns(2);
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('Planilha de Apontamentos Criada!', 'Preencha o diário na aba "' + nomeAba + '".\nVocê pode copiar e colar as linhas para lançar múltiplos dias para o mesmo CPF.\n\nQuando terminar: Lançamentos > Enviar Apontamentos.', SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function enviarApontamentosParaAPI() {
+    var sheet = SpreadsheetApp.getActiveSheet();
+    var nomeAba = sheet.getName();
+    var isApontamentos = nomeAba.toLowerCase().indexOf('apont') > -1 || nomeAba.toLowerCase().indexOf('ponto') > -1;
+    var isSnapshot = nomeAba.indexOf('V.') === 0;
+    var isLancamento = nomeAba.indexOf('LanÇõamento') > -1;
+
+    if (!isApontamentos || (!isSnapshot && !isLancamento)) {
+        SpreadsheetApp.getUi().alert('Aba incorreta', 'Você deve estar na aba "Lançamento Apontamentos" ou "Histórico Apontamentos" para enviar.', SpreadsheetApp.getUi().ButtonSet.OK);
+        return;
+    }
+
+    var ui = SpreadsheetApp.getUi();
+    var resp = ui.alert('Confirmar', 'Enviar apontamentos para o sistema?', ui.ButtonSet.YES_NO);
+    if (resp === ui.Button.NO) return;
+
+    var data = sheet.getDataRange().getValues();
+    if (data.length < 2) return;
+
+    var apontamentos = [];
+    for (var i = 1; i < data.length; i++) {
+        var row = data[i];
+        if (!row[0]) continue;
+
+        apontamentos.push({
+            cpf: String(row[0]).replace(/\D/g, ''),
+            data_apontamento: validarEConverterDataParaPayload(row[2], 'a data de apontamento da linha ' + (i + 1), true),
+            tipo_apontamento: row[3],
+            hora_entrada: row[4] ? formatarHora(row[4]) : null,
+            hora_saida: row[5] ? formatarHora(row[5]) : null,
+            hora_inicio_intervalo: row[6] ? formatarHora(row[6]) : null,
+            hora_fim_intervalo: row[7] ? formatarHora(row[7]) : null,
+            horas_trabalhadas: row[8],
+            horas_extras: row[9],
+            horas_noturnas: row[10],
+            falta: row[11] === 'Sim',
+            atraso_minutos: row[12],
+            saida_antecipada_minutos: row[13],
+            justificativa: row[14],
+            atestado: row[15] === 'Sim',
+            status: row[16],
+            observacoes: row[17]
+        });
+    }
+
+    try {
+        var url = CONFIG.API_URL + '/apontamentos/batch';
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({ apontamentos: apontamentos }),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        var res = JSON.parse(response.getContentText());
+        if (!res.success) throw new Error(res.error);
+
+        ui.alert('Sucesso!', res.message, ui.ButtonSet.OK);
+        var respDel = ui.alert('Limpeza', 'Deseja excluir esta aba de lançamento?', ui.ButtonSet.YES_NO);
+        if (respDel === ui.Button.YES) {
+            try { SpreadsheetApp.getActiveSpreadsheet().deleteSheet(sheet); } catch (e) { }
+        }
+    } catch (e) {
+        ui.alert('Erro', e.message, ui.ButtonSet.OK);
+    }
+}
+
+function criarColaboradorAPI(colaborador) {
+    try {
+        var payload = normalizarPayloadColaborador(colaborador);
+        var url = CONFIG.API_URL + '/colaboradores';
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+        };
+
+        var response = UrlFetchApp.fetch(url, options);
+        var resultado = JSON.parse(response.getContentText());
+        if (resultado.success) {
+            buscarColaboradoresAPI({});
+            return { success: true };
+        }
+        return { success: false, error: resultado.error };
+    } catch (erro) {
+        Logger.log('Erro ao criar colaborador: ' + erro.message);
+        return { success: false, error: erro.message };
+    }
+}
+
+function atualizarColaboradorAPI(cpf, dados) {
+    try {
+        var payload = normalizarPayloadColaborador(dados);
+        var url = CONFIG.API_URL + '/colaboradores/' + cpf;
+        var options = {
+            method: 'put',
+            contentType: 'application/json',
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function adicionarDependenteAPI(colaboradorId, dependente) {
+    try {
+        var url = CONFIG.API_URL + '/colaboradores/' + colaboradorId + '/dependentes';
+        var payload = normalizarPayloadDependente(dependente);
+        var options = {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify(payload),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        return JSON.parse(response.getContentText());
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+function atualizarDependenteAPI(id, dependente) {
+    var raw = '';
+    try {
+        var url = CONFIG.API_URL + '/dependentes/' + id;
+        var payloadFinal = normalizarPayloadDependente(dependente);
+        delete payloadFinal.cpf;
+        var options = {
+            method: 'put',
+            contentType: 'application/json',
+            payload: JSON.stringify(payloadFinal),
+            muteHttpExceptions: true
+        };
+        var response = UrlFetchApp.fetch(url, options);
+        raw = response.getContentText();
+        if (raw.indexOf('<') === 0) {
+            return { success: false, error: 'Erro HTML retornado: ' + raw.substring(0, 50) + '...' };
+        }
+        return JSON.parse(raw);
+    } catch (e) {
+        return { success: false, error: 'Exc: ' + e.message + (raw ? ' | Raw: ' + raw : '') };
+    }
+}
+
+function restaurarSnapshotFolha(itens, metadados) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dataStr = obterDataGeracaoISO(metadados.data_geracao);
+    var nomeAba = 'V. ' + dataStr + ' - Folha ' + metadados.mes_referencia + '/' + metadados.ano_referencia;
+    var sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear(); else sheet = ss.insertSheet(nomeAba);
+
+    var headers = [
+        'CPF', 'Nome', 'Mês', 'Ano',
+        'Local', 'Admissão', 'Sócio', 'Salário Base', 'Cargo', 'Departamento',
+        'Convênio Escolhido', 'DN', 'Idade', 'Faixa Etária',
+        'Vl 100% Amil', 'Vl Empresa Amil', 'Vl Func. Amil', 'Amil Saúde Dep',
+        'Odont. Func.', 'Odont. Dep.',
+        'Status (Pendente/Pago)', 'Data Pagto', 'Obs'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#4a86e8').setFontColor('white');
+
+    var mapaCPF = {};
+    itens.forEach(function (item) {
+        var d = item.dados_snapshot || item;
+        if (d.cpf) mapaCPF[String(d.cpf).replace(/\D/g, '')] = d;
+    });
+
+    var linhas = Object.keys(mapaCPF).map(function (cpfKey) {
+        var d = mapaCPF[cpfKey];
+        return [
+            formatarCPFParaExibicao(cpfKey),
+            d.nome || d.nome_colaborador || d.nome_completo || 'SEM NOME',
+            d.mes_referencia || metadados.mes_referencia,
+            d.ano_referencia || metadados.ano_referencia,
+            d.local_trabalho || '',
+            obterDataBrSegura(d.data_admissao),
+            parseFloat(d.socio || 0),
+            parseFloat(d.salario_base || 0),
+            d.cargo || '',
+            d.departamento || '',
+            d.convenio_escolhido || '',
+            obterDataBrSegura(d.data_nascimento),
+            d.idade || calcularIdadePorValor(d.data_nascimento),
+            d.faixa_etaria || '',
+            parseFloat(d.vl_100_amil || 0),
+            parseFloat(d.vl_empresa_amil || 0),
+            parseFloat(d.vl_func_amil || 0),
+            parseFloat(d.amil_saude_dep || 0),
+            parseFloat(d.odont_func || 0),
+            parseFloat(d.odont_dep || 0),
+            d.status_pagamento || 'pendente',
+            obterDataBrSegura(d.data_pagamento),
+            d.observacoes || ''
+        ];
+    });
+
+    if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    sheet.setColumnWidth(2, 200);
+    sheet.setFrozenColumns(2);
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('#ffffff').setBackground('#ffffff');
+    sheet.hideRows(1);
+    ss.setActiveSheet(sheet);
+    SpreadsheetApp.getUi().alert('Snapshot restaurado!', 'Snapshot de ' + dataStr + '\nCompetência: ' + normalizarCompetenciaBR(metadados.mes_referencia + '/' + metadados.ano_referencia), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+function restaurarSnapshotVariavel(itens, metadados) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dataStr = obterDataGeracaoISO(metadados.data_geracao);
+    var nomeAba = 'V. ' + dataStr + ' - Variável ' + metadados.mes_referencia + '/' + metadados.ano_referencia;
+    var sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear(); else sheet = ss.insertSheet(nomeAba);
+
+    var headers = ['CPF', 'Nome', 'Cargo', 'Tipo Variável', 'Valor (R$)', 'Data Referência', 'Observação'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#6aa84f').setFontColor('white');
+
+    var linhas = itens.map(function (item) {
+        var d = item.dados_snapshot || item;
+        return [
+            d.cpf ? formatarCPFParaExibicao(String(d.cpf).replace(/\D/g, '')) : '',
+            d.nome || d.nome_colaborador || d.nome_completo || '',
+            d.cargo || '',
+            d.tipo_variavel || d.tipo || 'comissao',
+            parseFloat(d.valor || 0),
+            obterDataBrSegura(d.data_referencia) || obterPrimeiroDiaCompetenciaBR({ mes: metadados.mes_referencia, ano: metadados.ano_referencia }),
+            d.observacoes || d.descricao || ''
+        ];
+    });
+
+    if (linhas.length > 0) {
+        sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+        sheet.getRange(2, 5, linhas.length, 1).setNumberFormat('R$ #,##0.00');
+    }
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+    sheet.setRowHeight(1, 1);
+    ss.setActiveSheet(sheet);
+}
+
+function restaurarSnapshotApontamentos(itens, metadados) {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var dataStr = obterDataGeracaoISO(metadados.data_geracao);
+    var nomeAba = 'V. ' + dataStr + ' - Apontamentos ' + metadados.mes_referencia + '/' + metadados.ano_referencia;
+    var sheet = ss.getSheetByName(nomeAba);
+    if (sheet) sheet.clear(); else sheet = ss.insertSheet(nomeAba);
+
+    var headers = [
+        'CPF', 'Nome', 'Data', 'Tipo (presenca/falta/etc)',
+        'Hora Entrada', 'Hora Saída', 'Inicio Intervalo', 'Fim Intervalo',
+        'Horas Trab.', 'Horas Extras', 'Horas Noturnas',
+        'Falta (S/N)', 'Atraso (min)', 'Saída Anec. (min)',
+        'Justificativa', 'Atestado (S/N)', 'Status (pendente)', 'Obs'
+    ];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#fbbc04');
+
+    var linhas = itens.map(function (item) {
+        var d = item.dados_snapshot || item;
+        return [
+            d.cpf ? formatarCPFParaExibicao(String(d.cpf).replace(/\D/g, '')) : '',
+            d.nome || d.nome_colaborador || d.nome_completo || '',
+            obterDataBrSegura(d.data_apontamento) || obterPrimeiroDiaCompetenciaBR({ mes: metadados.mes_referencia, ano: metadados.ano_referencia }),
+            d.tipo_apontamento || 'presenca',
+            d.hora_entrada || '08:00',
+            d.hora_saida || '17:00',
+            d.hora_inicio_intervalo || '12:00',
+            d.hora_fim_intervalo || '13:00',
+            d.horas_trabalhadas || 8,
+            d.horas_extras || 0,
+            d.horas_noturnas || 0,
+            d.falta ? 'Sim' : 'Não',
+            d.atraso_minutos || 0,
+            d.saida_antecipada_minutos || 0,
+            d.justificativa || '',
+            d.atestado ? 'Sim' : 'Não',
+            d.status || 'pendente',
+            d.observacoes || d.obs || ''
+        ];
+    });
+
+    if (linhas.length > 0) sheet.getRange(2, 1, linhas.length, headers.length).setValues(linhas);
+    sheet.insertRowBefore(1);
+    sheet.getRange('A1').setValue(JSON.stringify(metadados)).setFontColor('white');
+    sheet.setRowHeight(1, 1);
+    ss.setActiveSheet(sheet);
+}
+
+function obterScriptMascaraDatas(ids) {
+    return `
+      function somenteDigitosData(valor) {
+        return String(valor || '').replace(/\\D/g, '');
+      }
+
+      function formatarDataDigitada(valor) {
+        var digitos = somenteDigitosData(valor).substring(0, 8);
+        if (digitos.length <= 2) return digitos;
+        if (digitos.length <= 4) return digitos.substring(0, 2) + '/' + digitos.substring(2);
+        return digitos.substring(0, 2) + '/' + digitos.substring(2, 4) + '/' + digitos.substring(4);
+      }
+
+      function instalarMascaraData(id) {
+        var input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('input', function(e) {
+          e.target.value = formatarDataDigitada(e.target.value);
+        });
+        if (input.value) {
+          input.value = formatarDataDigitada(input.value);
+        }
+      }
+
+      ${JSON.stringify(ids)}.forEach(function(id) { instalarMascaraData(id); });
+    `;
+}
+
+function novoColaboradorModal() {
+    var html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; }
+      label { display: block; margin-top: 10px; font-weight: bold; font-size: 13px; }
+      input, select { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+      button { background: #4285f4; color: white; padding: 10px 20px; border: none; margin: 15px 5px 0 0; cursor: pointer; border-radius: 4px; font-weight: bold; }
+      button:hover { background: #357ae8; }
+      .required { color: red; }
+      .row { display: flex; gap: 10px; }
+      .col { flex: 1; }
+      h2 { color: #202124; margin-top: 0; }
+    </style>
+
+    <h2>Novo Colaborador</h2>
+
+    <form id="formColaborador">
+      <div class="row">
+        <div class="col">
+          <label>CPF <span class="required">*</span></label>
+          <input type="text" id="cpf" placeholder="000.000.000-00" required maxlength="14">
+        </div>
+        <div class="col">
+          <label>Matrícula</label>
+          <input type="text" id="matricula" placeholder="Ex: 1234">
+        </div>
+      </div>
+
+      <label>Nome Completo <span class="required">*</span></label>
+      <input type="text" id="nome_completo" required>
+
+      <div class="row">
+        <div class="col">
+          <label>Email</label>
+          <input type="email" id="email" placeholder="email@empresa.com">
+        </div>
+        <div class="col">
+          <label>Telefone</label>
+          <input type="text" id="telefone" placeholder="(00) 00000-0000">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Cargo</label>
+          <input type="text" id="cargo" placeholder="Ex: Analista">
+        </div>
+        <div class="col">
+          <label>Departamento</label>
+          <select id="departamento">
+            <option value="">Selecione...</option>
+            <option value="Comercial">Comercial</option>
+            <option value="RH">RH</option>
+            <option value="Financeiro">Financeiro</option>
+            <option value="Vendas">Vendas</option>
+            <option value="TI">TI</option>
+            <option value="Operações">Operações</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Código Folha</label>
+          <input type="text" id="codigo_folha" placeholder="Ex: 001">
+        </div>
+        <div class="col">
+          <label>Local de Trabalho</label>
+          <input type="text" id="local_trabalho" placeholder="Ex: Matriz">
+        </div>
+        <div class="col">
+          <label>Cidade</label>
+          <input type="text" id="cidade" placeholder="Ex: São Paulo">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Data Nascimento</label>
+          <input type="text" id="data_nascimento" inputmode="numeric" placeholder="DDMMAAAA ou DD/MM/AAAA" maxlength="10">
+        </div>
+        <div class="col">
+          <label>Data Admissão</label>
+          <input type="text" id="data_admissao" inputmode="numeric" placeholder="DDMMAAAA ou DD/MM/AAAA" maxlength="10">
+        </div>
+        <div class="col">
+          <label>Salário Base (R$)</label>
+          <input type="number" step="0.01" id="salario_base" placeholder="0,00">
+        </div>
+      </div>
+
+      <label>Status</label>
+      <select id="status">
+        <option value="ativo" selected>Ativo</option>
+        <option value="inativo">Inativo</option>
+        <option value="ferias">Férias</option>
+        <option value="afastado">Afastado</option>
+      </select>
+
+      <div style="margin-top: 20px;">
+        <button type="submit">Salvar</button>
+        <button type="button" onclick="google.script.host.close()">Cancelar</button>
+      </div>
+    </form>
+
+    <div id="mensagem" style="margin-top: 20px; padding: 10px; display: none;"></div>
+
+    <script>
+      document.getElementById('cpf').addEventListener('input', function(e) {
+        var value = e.target.value.replace(/\\D/g, '');
+        if (value.length <= 11) {
+          value = value.replace(/(\\d{3})(\\d)/, '$1.$2');
+          value = value.replace(/(\\d{3})(\\d)/, '$1.$2');
+          value = value.replace(/(\\d{3})(\\d{1,2})$/, '$1-$2');
+          e.target.value = value;
+        }
+      });
+
+      document.getElementById('telefone').addEventListener('input', function(e) {
+        var value = e.target.value.replace(/\\D/g, '');
+        if (value.length <= 11) {
+          value = value.replace(/(\\d{2})(\\d)/, '($1) $2');
+          value = value.replace(/(\\d{5})(\\d)/, '$1-$2');
+          e.target.value = value;
+        }
+      });
+
+      ${obterScriptMascaraDatas(['data_nascimento', 'data_admissao'])}
+
+      document.getElementById('formColaborador').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        var colaborador = {
+          cpf: document.getElementById('cpf').value.replace(/\\D/g, ''),
+          matricula: document.getElementById('matricula').value,
+          nome_completo: document.getElementById('nome_completo').value,
+          email: document.getElementById('email').value,
+          telefone: document.getElementById('telefone').value.replace(/\\D/g, ''),
+          cargo: document.getElementById('cargo').value,
+          departamento: document.getElementById('departamento').value,
+          codigo_folha: document.getElementById('codigo_folha').value,
+          local_trabalho: document.getElementById('local_trabalho').value,
+          cidade: document.getElementById('cidade').value,
+          data_nascimento: document.getElementById('data_nascimento').value,
+          data_admissao: document.getElementById('data_admissao').value,
+          salario_base: document.getElementById('salario_base').value,
+          status: document.getElementById('status').value
+        };
+
+        Object.keys(colaborador).forEach(function(k) {
+          if (colaborador[k] === '') delete colaborador[k];
+        });
+
+        if (colaborador.cpf.length !== 11) {
+          mostrarMensagem('CPF inválido. Digite 11 dígitos.', 'error');
+          return;
+        }
+
+        if (!colaborador.nome_completo || colaborador.nome_completo.trim().length < 3) {
+          mostrarMensagem('Nome deve ter pelo menos 3 caracteres.', 'error');
+          return;
+        }
+
+        mostrarMensagem('Salvando dados...', 'info');
+        google.script.run
+          .withSuccessHandler(function(resultado) {
+            if (resultado.success) {
+              mostrarMensagem('Salvo com sucesso!', 'success');
+              setTimeout(function() { google.script.host.close(); }, 1500);
+            } else {
+              mostrarMensagem('Erro: ' + resultado.error, 'error');
+            }
+          })
+          .withFailureHandler(function(erro) {
+            mostrarMensagem('Erro no servidor: ' + erro.message, 'error');
+          })
+          .criarColaboradorAPI(colaborador);
+      });
+
+      function mostrarMensagem(texto, tipo) {
+        var div = document.getElementById('mensagem');
+        div.style.display = 'block';
+        div.innerHTML = texto;
+        if (tipo === 'success') {
+          div.style.background = '#d4edda';
+          div.style.color = '#155724';
+          div.style.border = '1px solid #c3e6cb';
+        } else if (tipo === 'error') {
+          div.style.background = '#f8d7da';
+          div.style.color = '#721c24';
+          div.style.border = '1px solid #f5c6cb';
+        } else {
+          div.style.background = '#d1ecf1';
+          div.style.color = '#0c5460';
+          div.style.border = '1px solid #bee5eb';
+        }
+      }
+    </script>
+  `).setWidth(560).setHeight(680);
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Novo Colaborador');
+}
+
+function mostrarModalEdicao(colaborador) {
+    var nome = colaborador.nome_completo || '';
+    var email = colaborador.email || '';
+    var telefone = colaborador.telefone || '';
+    var cargo = colaborador.cargo || '';
+    var dep = colaborador.departamento || '';
+    var local = colaborador.local_trabalho || '';
+    var cidade = colaborador.cidade || '';
+    var motivo = colaborador.motivo_alteracao || '';
+    var status = colaborador.status || 'ativo';
+    var admissao = obterDataBrSegura(colaborador.data_admissao);
+    var salario = colaborador.salario_base || colaborador.salario || 0;
+
+    if (typeof salario === 'string') {
+        var limpo = salario.replace(/[^\d,.-]/g, '');
+        if (limpo.indexOf(',') > -1) limpo = limpo.replace('.', '').replace(',', '.');
+        salario = parseFloat(limpo);
+    }
+    if (typeof salario !== 'number' || isNaN(salario)) salario = 0;
+    salario = salario.toFixed(2).replace('.', ',');
+
+    var colabId = colaborador.id || colaborador.colaborador_id || colaborador.cpf;
+    var planosList = null;
+    var pUsuario = null;
+    var depsRes = null;
+    try { planosList = listarPlanosAPI(); } catch (e) { planosList = { success: false, error: e.message }; }
+    try { pUsuario = buscarPlanosColaboradorAPI(colabId); } catch (e2) { pUsuario = { success: false, error: e2.message }; }
+    try { depsRes = listarDependentesAPI(colabId); } catch (e3) { depsRes = { success: false, error: e3.message }; }
+
+    var dataTags = ''
+        + '<script type="application/json" id="srvplanos">' + JSON.stringify(planosList).replace(/<\//g, '\\u003c/') + '<\/script>'
+        + '<script type="application/json" id="srvplanosuser">' + JSON.stringify(pUsuario).replace(/<\//g, '\\u003c/') + '<\/script>'
+        + '<script type="application/json" id="srvdeps">' + JSON.stringify(depsRes).replace(/<\//g, '\\u003c/') + '<\/script>';
+
+    var html = HtmlService.createHtmlOutput(dataTags + `
+    <style>
+      body { font-family: Arial, sans-serif; padding: 20px; background: #f8f9fa; }
+      h2 { color: #202124; border-bottom: 2px solid #4285f4; padding-bottom: 10px; margin-top: 0; }
+      label { display: block; margin-top: 12px; font-weight: 600; color: #5f6368; font-size: 13px; }
+      input, select { width: 100%; padding: 10px; margin: 5px 0; box-sizing: border-box; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; }
+      .row { display: flex; gap: 15px; }
+      .col { flex: 1; }
+      .section { background: white; padding: 18px; border-radius: 8px; border: 1px solid #dadce0; margin-top: 18px; }
+      .btn { padding: 10px 24px; border: none; margin: 15px 5px 0 0; cursor: pointer; border-radius: 4px; font-weight: 600; }
+      .btn-primary { background: #1a73e8; color: white; }
+      .btn-secondary { background: #fff; color: #5f6368; border: 1px solid #dadce0; }
+      .btn-success { background: #1e8e3e; color: white; }
+      .info-box { background: #e8f0fe; padding: 12px; margin-bottom: 20px; border-radius: 8px; color: #1967d2; }
+    </style>
+
+    <h2>Editar Colaborador</h2>
+    <div class="info-box">
+      <strong>${formatarCPFParaExibicao(colaborador.cpf)}</strong><br>
+      <small>O CPF é o identificador único e não pode ser alterado.</small>
+    </div>
+
+    <form id="formEdicao">
+      <input type="hidden" id="colaborador_id" value="${colaborador.id}">
+      <input type="hidden" id="cpf" value="${colaborador.cpf}">
+
+      <div class="row">
+        <div class="col" style="flex:2;">
+          <label>Nome Completo</label>
+          <input type="text" id="nome_completo" value="${nome}" required>
+        </div>
+        <div class="col">
+          <label>Status</label>
+          <select id="status">
+            <option value="ativo" ${status === 'ativo' ? 'selected' : ''}>Ativo</option>
+            <option value="inativo" ${status === 'inativo' ? 'selected' : ''}>Inativo</option>
+            <option value="ferias" ${status === 'ferias' ? 'selected' : ''}>Férias</option>
+            <option value="afastado" ${status === 'afastado' ? 'selected' : ''}>Afastado</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Email</label>
+          <input type="email" id="email" value="${email}">
+        </div>
+        <div class="col">
+          <label>Telefone</label>
+          <input type="text" id="telefone" value="${telefone}">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Cargo</label>
+          <input type="text" id="cargo" value="${cargo}">
+        </div>
+        <div class="col">
+          <label>Departamento</label>
+          <select id="departamento">
+            <option value="">Selecione...</option>
+            <option value="Comercial" ${dep === 'Comercial' ? 'selected' : ''}>Comercial</option>
+            <option value="RH" ${dep === 'RH' ? 'selected' : ''}>RH</option>
+            <option value="Financeiro" ${dep === 'Financeiro' ? 'selected' : ''}>Financeiro</option>
+            <option value="Vendas" ${dep === 'Vendas' ? 'selected' : ''}>Vendas</option>
+            <option value="TI" ${dep === 'TI' ? 'selected' : ''}>TI</option>
+            <option value="Operações" ${dep === 'Operações' ? 'selected' : ''}>Operações</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="col">
+          <label>Local de Trabalho</label>
+          <input type="text" id="local_trabalho" value="${local}">
+        </div>
+        <div class="col">
+          <label>Cidade</label>
+          <input type="text" id="cidade" value="${cidade}">
+        </div>
+        <div class="col">
+          <label>Data Admissão</label>
+          <input type="text" id="data_admissao" value="${admissao}" inputmode="numeric" placeholder="DDMMAAAA ou DD/MM/AAAA" maxlength="10">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row">
+          <div class="col">
+            <label>Salário Base (R$)</label>
+            <input type="text" id="salario_base" value="${salario}" oninput="formatarMoeda(this)">
+          </div>
+          <div class="col">
+            <label>Motivo Alteração</label>
+            <input type="text" id="motivo_alteracao" value="${motivo}" placeholder="Ex: Promoção, Dissídio">
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Plano de Saúde</label>
+        <select id="plano_saude"><option value="">Carregando...</option></select>
+        <label>Carteirinha / Matrícula</label>
+        <input type="text" id="matricula_saude" placeholder="Ex: 95445982">
+        <label>Plano Odontológico (Opcional)</label>
+        <select id="plano_odonto"><option value="">Carregando...</option></select>
+      </div>
+
+      <div class="section">
+        <label style="margin-top:0;">Dependentes</label>
+        <div id="lista_dependentes" style="margin-bottom: 15px; font-size: 13px; color: #666;">Carregando lista...</div>
+        <input type="hidden" id="dep_id">
+        <label id="titulo_dep">Adicionar Dependente</label>
+        <div class="row">
+          <input type="text" id="dep_nome" placeholder="Nome Completo" style="flex:2;">
+          <input type="text" id="dep_cpf" placeholder="CPF" style="flex:1;">
+          <input type="text" id="dep_nasc" placeholder="DDMMAAAA ou DD/MM/AAAA" inputmode="numeric" maxlength="10" style="flex:1;">
+        </div>
+        <div class="row">
+          <select id="dep_parentesco" style="flex:1;">
+            <option value="">Parentesco...</option>
+            <option value="Filho(a)">Filho(a)</option>
+            <option value="Conjuge">Cônjuge</option>
+            <option value="Pai/Mae">Pai/Mãe</option>
+          </select>
+          <input type="text" id="dep_matricula" placeholder="Matrícula (Opcional)" style="flex:1;">
+          <div style="display:flex; gap:5px;">
+            <button type="button" id="btn_salvar_dep" onclick="adicionarDependenteUI(this)" class="btn btn-success" style="margin:5px 0 0 0; padding:8px 15px;">Adicionar</button>
+            <button type="button" id="btn_cancelar_dep" onclick="cancelarEdicaoDependente()" class="btn btn-secondary" style="margin:5px 0 0 0; padding:8px 15px; display:none;">Cancelar</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 25px; text-align: right; border-top: 1px solid #eee; padding-top: 15px;">
+        <button type="button" onclick="google.script.host.close()" class="btn btn-secondary">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+      </div>
+    </form>
+
+    <div id="mensagem" style="margin-top: 20px; padding: 15px; display: none; border-radius: 6px;"></div>
+
+    <script>
+      function formatarMoeda(el) {
+        var v = el.value.replace(/[^0-9]/g, '');
+        if (!v) { el.value = ''; return; }
+        v = (v / 100).toFixed(2) + '';
+        v = v.replace('.', ',');
+        v = v.replace(/(\\d)(?=(\\d{3})+(?!\\d))/g, '$1.');
+        el.value = v;
+      }
+
+      document.getElementById('telefone').addEventListener('input', function(e) {
+        var v = e.target.value.replace(/[^0-9]/g, '');
+        if (v.length > 11) v = v.substring(0, 11);
+        e.target.value = v;
+      });
+
+      ${obterScriptMascaraDatas(['data_admissao', 'dep_nasc'])}
+
+      document.getElementById('formEdicao').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var salarioStr = document.getElementById('salario_base').value;
+        var salarioLimpo = salarioStr.replace(/[^0-9,]/g, '').replace(',', '.');
+        var salarioNum = parseFloat(salarioLimpo);
+        var dados = {
+          nome_completo: document.getElementById('nome_completo').value,
+          email: document.getElementById('email').value,
+          telefone: document.getElementById('telefone').value,
+          cargo: document.getElementById('cargo').value,
+          departamento: document.getElementById('departamento').value,
+          local_trabalho: document.getElementById('local_trabalho').value,
+          cidade: document.getElementById('cidade').value,
+          data_admissao: document.getElementById('data_admissao').value,
+          salario_base: salarioNum || 0,
+          motivo_alteracao: document.getElementById('motivo_alteracao').value,
+          status: document.getElementById('status').value
+        };
+        mostrarMensagem('Salvando dados do colaborador...', 'info');
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (res.success) salvarPlanos();
+            else mostrarMensagem('Erro ao salvar colaborador: ' + res.error, 'error');
+          })
+          .withFailureHandler(function(err) {
+            mostrarMensagem('Erro de comunicação: ' + err.message, 'error');
+          })
+          .atualizarColaboradorAPI(document.getElementById('cpf').value, dados);
+      });
+
+      function mostrarMensagem(texto, tipo) {
+        var div = document.getElementById('mensagem');
+        div.style.display = 'block';
+        div.innerHTML = texto;
+        div.style.background = tipo === 'success' ? '#d4edda' : (tipo === 'error' ? '#f8d7da' : '#d1ecf1');
+        div.style.color = tipo === 'success' ? '#155724' : (tipo === 'error' ? '#721c24' : '#0c5460');
+        div.style.border = '1px solid ' + (tipo === 'success' ? '#c3e6cb' : (tipo === 'error' ? '#f5c6cb' : '#bee5eb'));
+      }
+
+      function classificarPlano(plano) {
+        var texto = ((plano.nome || plano.nome_plano || '') + ' ' + (plano.tipo || '') + ' ' + (plano.categoria || '')).toLowerCase();
+        return texto.indexOf('odonto') > -1 ? 'odonto' : 'saude';
+      }
+
+      function popularPlanos(lista) {
+        var saude = document.getElementById('plano_saude');
+        var odonto = document.getElementById('plano_odonto');
+        saude.innerHTML = '<option value="">Selecione...</option>';
+        odonto.innerHTML = '<option value="">Selecione...</option>';
+        (lista || []).forEach(function(plano) {
+          var option = '<option value="' + plano.id + '">' + (plano.nome || plano.nome_plano || ('Plano ' + plano.id)) + '</option>';
+          if (classificarPlano(plano) === 'odonto') odonto.innerHTML += option;
+          else saude.innerHTML += option;
+        });
+      }
+
+      function aplicarPlanosUsuario(lista) {
+        (lista || []).forEach(function(item) {
+          var tipo = classificarPlano(item);
+          var planoId = item.plano_id || item.id || '';
+          if (tipo === 'odonto') {
+            document.getElementById('plano_odonto').value = String(planoId);
+          } else {
+            document.getElementById('plano_saude').value = String(planoId);
+            document.getElementById('matricula_saude').value = item.matricula || item.carteirinha || item.numero_carteirinha || '';
+          }
+        });
+      }
+
+      function salvarPlanos() {
+        var cid = document.getElementById('colaborador_id').value;
+        var pSaude = document.getElementById('plano_saude').value;
+        var pOdonto = document.getElementById('plano_odonto').value;
+        var matSaude = document.getElementById('matricula_saude').value;
+        mostrarMensagem('Salvando planos...', 'info');
+
+        function finalizar() {
+          mostrarMensagem('Sucesso! Todas as alterações foram salvas.', 'success');
+          setTimeout(function() { google.script.host.close(); }, 1500);
+        }
+
+        function salvarOdonto() {
+          if (!pOdonto) { finalizar(); return; }
+          google.script.run.withSuccessHandler(finalizar).withFailureHandler(function(err) {
+            mostrarMensagem('Erro ao salvar plano odonto: ' + err.message, 'error');
+          }).salvarPlanoColaboradorAPI(cid, pOdonto, null);
+        }
+
+        if (pSaude) {
+          google.script.run.withSuccessHandler(salvarOdonto).withFailureHandler(function(err) {
+            mostrarMensagem('Erro ao salvar plano de saúde: ' + err.message, 'error');
+          }).salvarPlanoColaboradorAPI(cid, pSaude, matSaude);
+        } else {
+          salvarOdonto();
+        }
+      }
+
+      function carregarDependentesUI() {
+        var el = document.getElementById('srvdeps');
+        var div = document.getElementById('lista_dependentes');
+        if (el) {
+          var res = JSON.parse(el.textContent);
+          if (res && res.success) renderizarDependentes(res.data);
+          else div.innerHTML = 'Erro dependentes: ' + (res ? res.error : 'inválido');
+          el.parentNode.removeChild(el);
+        } else {
+          google.script.run.withSuccessHandler(function(res) {
+            if (res && res.success) renderizarDependentes(res.data);
+            else div.innerHTML = 'Erro dependentes: ' + (res ? res.error : 'inválido');
+          }).listarDependentesAPI(document.getElementById('colaborador_id').value);
+        }
+      }
+
+      function renderizarDependentes(lista) {
+        var div = document.getElementById('lista_dependentes');
+        if (!lista || lista.length === 0) {
+          div.innerHTML = '<i>Nenhum dependente cadastrado.</i>';
+          return;
+        }
+        var html = '<table style="width:100%; border-collapse: collapse;">';
+        lista.forEach(function(d) {
+          var dadosSafe = JSON.stringify(d).replace(/"/g, '&quot;');
+          html += '<tr style="border-bottom: 1px solid #eee;">'
+            + '<td style="padding: 8px;">' + d.nome + '</td>'
+            + '<td style="padding: 8px; color: #666;">' + d.parentesco + '</td>'
+            + '<td style="text-align:right; padding: 8px;">'
+            + '<span style="cursor:pointer; color:#1a73e8; font-weight:bold; margin-right:10px;" onclick="prepararEdicaoDependente(' + dadosSafe + ')">Editar</span>'
+            + '<span style="cursor:pointer; color:#d93025; font-weight:bold;" onclick="removerDependenteUI(\\'' + d.id + '\\')">Excluir</span>'
+            + '</td></tr>';
+        });
+        html += '</table>';
+        div.innerHTML = html;
+      }
+
+      function prepararEdicaoDependente(d) {
+        document.getElementById('dep_id').value = d.id;
+        document.getElementById('dep_nome').value = d.nome;
+        document.getElementById('dep_cpf').value = d.cpf || '';
+        document.getElementById('dep_cpf').disabled = true;
+        document.getElementById('dep_nasc').value = formatarDataDigitada(d.data_nasc || '');
+        document.getElementById('dep_parentesco').value = d.parentesco;
+        document.getElementById('dep_matricula').value = d.matricula || '';
+        document.getElementById('titulo_dep').innerText = 'Editar Dependente';
+        document.getElementById('btn_salvar_dep').textContent = 'Salvar Alteração';
+        document.getElementById('btn_cancelar_dep').style.display = 'block';
+      }
+
+      function cancelarEdicaoDependente() {
+        document.getElementById('dep_id').value = '';
+        document.getElementById('dep_nome').value = '';
+        document.getElementById('dep_cpf').value = '';
+        document.getElementById('dep_cpf').disabled = false;
+        document.getElementById('dep_nasc').value = '';
+        document.getElementById('dep_parentesco').value = '';
+        document.getElementById('dep_matricula').value = '';
+        document.getElementById('titulo_dep').innerText = 'Adicionar Dependente';
+        document.getElementById('btn_salvar_dep').textContent = 'Adicionar';
+        document.getElementById('btn_cancelar_dep').style.display = 'none';
+      }
+
+      function adicionarDependenteUI(btn) {
+        var id = document.getElementById('colaborador_id').value;
+        var depId = document.getElementById('dep_id').value;
+        var dadosDep = {
+          nome: document.getElementById('dep_nome').value,
+          cpf: document.getElementById('dep_cpf').value,
+          data_nasc: document.getElementById('dep_nasc').value,
+          parentesco: document.getElementById('dep_parentesco').value,
+          matricula: document.getElementById('dep_matricula').value
+        };
+
+        if (!dadosDep.nome || !dadosDep.data_nasc || !dadosDep.parentesco) {
+          alert('Preencha Nome, Data de Nascimento e Parentesco.');
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Salvando...';
+        var callback = function(res) {
+          btn.disabled = false;
+          btn.textContent = depId ? 'Salvar Alteração' : 'Adicionar';
+          if (res.success) {
+            cancelarEdicaoDependente();
+            carregarDependentesUI();
+          } else {
+            alert('Erro: ' + (typeof res.error === 'object' ? JSON.stringify(res.error) : res.error));
+          }
+        };
+
+        if (depId) {
+          google.script.run.withSuccessHandler(callback).atualizarDependenteAPI(depId, dadosDep);
+        } else {
+          google.script.run.withSuccessHandler(callback).adicionarDependenteAPI(id, dadosDep);
+        }
+      }
+
+      function removerDependenteUI(id) {
+        if (!confirm('Tem certeza que deseja excluir este dependente?')) return;
+        google.script.run.withSuccessHandler(function(res) {
+          if (res.success) carregarDependentesUI();
+          else alert('Erro ao remover dependente: ' + res.error);
+        }).removerDependenteAPI(id);
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var planosEl = document.getElementById('srvplanos');
+        if (planosEl) {
+          var planosRes = JSON.parse(planosEl.textContent);
+          if (planosRes && planosRes.success) popularPlanos(planosRes.data);
+        }
+        var userPlanosEl = document.getElementById('srvplanosuser');
+        if (userPlanosEl) {
+          var userPlanosRes = JSON.parse(userPlanosEl.textContent);
+          if (userPlanosRes && userPlanosRes.success) aplicarPlanosUsuario(userPlanosRes.data);
+        }
+        carregarDependentesUI();
+      });
+    </script>
+  `).setWidth(760).setHeight(720);
+
+    SpreadsheetApp.getUi().showModalDialog(html, 'Editar Colaborador');
+}
+
+// =====================================================
 // RELATORIOS AVANCADOS - AJUSTES DE PDF/EMAIL
 // =====================================================
 
@@ -4451,12 +6012,11 @@ function mostrarModalRelatoriosAvancados() {
 
         btn.innerText = 'Enviando email...';
         btn.disabled = true;
-
         google.script.run
           .withSuccessHandler(function (res) {
               btn.innerText = 'Enviar Email HTML + PDF';
               btn.disabled = false;
-              if (res && res.success) alert('\u2705 Email enviado com sucesso!');
+              if (res && res.success) alert('\\u2705 Email enviado com sucesso!');
               else alert('Falha ao Enviar: ' + (res && res.error ? res.error : 'Erro desconhecido ao enviar o email.'));
           })
           .withFailureHandler(function (err) {
@@ -4472,148 +6032,71 @@ function mostrarModalRelatoriosAvancados() {
     SpreadsheetApp.getUi().showModalDialog(html, 'Relatorios Avancados');
 }
 
+/**
+ * Gera um PDF da aba informada e salva na pasta configurada no Drive.
+ * @param {string} nomeAba Nome da aba.
+ */
+function exportarAbaParaPDF(nomeAba) {
+    try {
+        const resPdf = gerarPdfBlobDaAba(nomeAba);
+        if (!resPdf.success) return resPdf;
+
+        const pasta = obterPastaPadraoRelatorios();
+        const nomeArquivo = gerarNomeArquivoRelatorio(nomeAba);
+        
+        const file = pasta.createFile(resPdf.blob.setName(nomeArquivo));
+        
+        return { 
+            success: true, 
+            url: file.getUrl(), 
+            id: file.getId(),
+            nome: nomeArquivo,
+            pasta: pasta.getName()
+        };
+    } catch (e) {
+        return { success: false, error: 'Erro ao exportar PDF: ' + e.message };
+    }
+}
+
+/**
+ * Gera o Blob do PDF de uma aba.
+ * @param {string} nomeAba
+ */
 function gerarPdfBlobDaAba(nomeAba) {
     try {
-        if (!nomeAba || String(nomeAba).trim() === '') {
-            throw new Error('Informe o nome da aba para gerar o PDF.');
-        }
+        if (!nomeAba) throw new Error('Nome da aba não informado.');
 
         const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const nomeAbaNormalizado = String(nomeAba).trim();
-        const sheet = ss.getSheetByName(nomeAbaNormalizado);
-        if (!sheet) {
-            throw new Error('Aba nao encontrada: ' + nomeAbaNormalizado);
-        }
+        const sheet = ss.getSheetByName(nomeAba);
+        if (!sheet) throw new Error('Aba não encontrada: ' + nomeAba);
 
-        const spreadsheetId = ss.getId();
-        const sheetId = sheet.getSheetId();
-        const token = ScriptApp.getOAuthToken();
-        const url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?' +
+        const url = 'https://docs.google.com/spreadsheets/d/' + ss.getId() + '/export?' +
             'exportFormat=pdf&format=pdf' +
-            '&size=A4' +
-            '&portrait=false' +
-            '&fitw=true' +
+            '&size=A4&portrait=false&fitw=true' +
             '&sheetnames=false&printtitle=false&pagenumbers=true' +
-            '&gridlines=false' +
-            '&fzr=false' +
-            '&gid=' + sheetId;
+            '&gridlines=false&fzr=false' +
+            '&gid=' + sheet.getSheetId();
 
-        // Gera o PDF diretamente da aba sem criar arquivo no Drive.
         const response = UrlFetchApp.fetch(url, {
-            headers: { 'Authorization': 'Bearer ' + token },
+            headers: { 'Authorization': 'Bearer ' + ScriptApp.getOAuthToken() },
             muteHttpExceptions: true
         });
 
         if (response.getResponseCode() !== 200) {
-            throw new Error('Falha ao gerar PDF da aba "' + nomeAbaNormalizado + '". HTTP ' + response.getResponseCode() + '.');
+            throw new Error('Falha na exportação (HTTP ' + response.getResponseCode() + ')');
         }
 
-        const blob = response.getBlob().setName(nomeAbaNormalizado + ' - Relatorio.pdf');
-        return { success: true, blob: blob };
+        return { success: true, blob: response.getBlob() };
     } catch (e) {
         return { success: false, error: e.message };
     }
 }
 
-function exportarAbaParaPDF(nomeAba) {
-    try {
-        const resPdf = gerarPdfBlobDaAba(nomeAba);
-        if (!resPdf.success) {
-            return resPdf;
-        }
-
-        const file = DriveApp.createFile(resPdf.blob);
-        return { success: true, url: file.getUrl(), id: file.getId() };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-}
-
-function enviarRelatorioPorEmail(nomeAba, emailsDestino, assunto, HTMLmsg) {
-    try {
-        const abaNormalizada = nomeAba ? String(nomeAba).trim() : '';
-        if (abaNormalizada === '') {
-            throw new Error('Selecione a aba que sera enviada por email.');
-        }
-
-        const emailsInformados = emailsDestino ? String(emailsDestino).split(/[;,]/) : [];
-        const emailsValidos = [];
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-        for (let i = 0; i < emailsInformados.length; i++) {
-            const emailAtual = String(emailsInformados[i]).trim();
-            if (emailAtual === '') {
-                return { success: false, error: 'E-mail de destino invalido: (vazio)' };
-            }
-            if (!emailRegex.test(emailAtual)) {
-                return { success: false, error: 'E-mail de destino invalido: ' + emailAtual };
-            }
-            emailsValidos.push(emailAtual);
-        }
-
-        if (emailsValidos.length === 0) {
-            throw new Error('Informe ao menos um e-mail de destino valido.');
-        }
-
-        const assuntoFinal = assunto && String(assunto).trim() !== ''
-            ? String(assunto).trim()
-            : 'Relatorio Sistema RH';
-        const mensagemFinal = HTMLmsg && String(HTMLmsg).trim() !== ''
-            ? String(HTMLmsg).trim()
-            : 'Segue em anexo o relatorio solicitado.';
-
-        const resPdf = gerarPdfBlobDaAba(abaNormalizada);
-        if (!resPdf.success) {
-            throw new Error('Nao foi possivel gerar o PDF: ' + resPdf.error);
-        }
-
-        const htmlTemplate = `
-            <div style="font-family: Arial, sans-serif; color: #333;">
-              <h2>Ola!</h2>
-              <p>${mensagemFinal}</p>
-              <br><hr>
-              <p style="font-size: 11px; color: #888;">E-mail gerado automaticamente pelo Sistema RH.</p>
-            </div>
-        `;
-
-        const plainTextBody = mensagemFinal.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-
-        MailApp.sendEmail({
-            to: emailsValidos.join(','),
-            subject: assuntoFinal,
-            body: plainTextBody || 'Segue em anexo o relatorio solicitado.',
-            htmlBody: htmlTemplate,
-            attachments: [resPdf.blob]
-        });
-
-        return { success: true };
-    } catch (e) {
-        return { success: false, error: e.message };
-    }
-}
-
-function testarPermissoesEmailRelatorio() {
-    const ui = SpreadsheetApp.getUi();
-
-    try {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const nomeAba = ss.getActiveSheet().getName();
-        const resPdf = gerarPdfBlobDaAba(nomeAba);
-
-        if (!resPdf.success) {
-            throw new Error(resPdf.error);
-        }
-
-        Logger.log('Quota diaria restante de email: ' + MailApp.getRemainingDailyQuota());
-        ui.alert('Permissoes de PDF/e-mail verificadas. Se foi solicitada autorizacao, aceite e execute novamente.');
-    } catch (e) {
-        ui.alert('Erro ao verificar permissoes de PDF/e-mail: ' + e.message);
-    }
-}
-
-// =====================================================
-// OVERRIDES FINAIS - AUTORIZACAO DE PDF/E-MAIL
-// =====================================================
+const RELATORIOS_DRIVE_CONFIG = {
+    FOLDER_PROP_KEY: 'SISTEMA_RH_RELATORIOS_FOLDER_ID',
+    DEFAULT_FOLDER_ID: '1D0ApOpIiJ-y7NzntwfPwfCecnjLgZmKH',
+    DEFAULT_FOLDER_NAME: 'Sistema RH - Relatórios Exportados'
+};
 
 function onOpen() {
     const ui = SpreadsheetApp.getUi();
@@ -4646,12 +6129,14 @@ function onOpen() {
             .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
             .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros')
             .addSeparator()
-            .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
-        .addSeparator()
+            .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados')
+            .addSeparator()
+            .addItem('⚙️ Configurar Pasta Drive', 'abrirConfiguracaoPastaRelatorios')
+            .addItem('🧪 Diagnosticar Pasta Drive', 'diagnosticarPastaRelatorios'))
         .addSeparator()
         .addItem('📜 Histórico de Versões', 'listarHistoricoModal')
         .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
-        .addItem('⚙️ Configurações', 'abrirConfiguracoes')
+        .addItem('⚙️ Configurações', 'abrirConfigurações')
         .addItem('🔐 Autorizar PDF/E-mail', 'autorizarPermissoesEmailRelatorio')
         .addItem('🧪 Diagnosticar PDF/E-mail', 'diagnosticarEmailRelatorio')
         .addToUi();
@@ -4839,6 +6324,7 @@ function testarPermissoesEmailRelatorio() {
 // OVERRIDES FINAIS - RELATORIOS AVANCADOS COM FILTROS
 // =====================================================
 
+
 function mostrarModalRelatoriosAvancados() {
     const abas = SpreadsheetApp.getActiveSpreadsheet().getSheets()
         .map(function (s) { return s.getName(); })
@@ -4875,18 +6361,19 @@ function mostrarModalRelatoriosAvancados() {
     </style>
     <h2>Central de Relatórios</h2>
     <div class="tabs">
-      <div class="tab active" onclick="switchTab('export', event)">Exportar PDF/Excel</div>
+      <div class="tab active" onclick="switchTab('export', event)">Exportar PDF</div>
       <div class="tab" onclick="switchTab('email', event)">Enviar por Email</div>
       <div class="tab" onclick="switchTab('filtros', event)">Gerar com Filtros</div>
     </div>
 
     <div id="export" class="content active">
-      <p>Selecione uma aba gerada no Sheets para exportá-la para PDF direto no seu Google Drive:</p>
+      <p>Exportar aba para PDF na pasta configurada no Google Drive:</p>
       <label>Aba de Relatório:</label>
       <select id="aba_pdf">
         ${abas.map(function (a) { return '<option value="' + a + '">' + a + '</option>'; }).join('')}
       </select>
-      <button class="btn btn-pdf" onclick="exportarPDF(this)">Exportar PDF (Google Drive)</button>
+      <button class="btn btn-pdf" onclick="exportarPDF(this)">🚀 Exportar para o Drive</button>
+      <div id="pdf_resultado" class="resultado"></div>
     </div>
 
     <div id="email" class="content">
@@ -4899,7 +6386,8 @@ function mostrarModalRelatoriosAvancados() {
       <input type="text" id="dest" placeholder="email@empresa.com">
       <label>Mensagem HTML:</label>
       <input type="text" id="msg" value="Segue em anexo o relatório solicitado.">
-      <button class="btn btn-email" onclick="enviarEmail(this)">Enviar Email HTML + PDF</button>
+      <button class="btn btn-email" onclick="enviarEmail(this)">📧 Enviar Email HTML + PDF</button>
+      <div id="email_resultado" class="resultado"></div>
     </div>
 
     <div id="filtros" class="content">
@@ -4950,8 +6438,8 @@ function mostrarModalRelatoriosAvancados() {
         document.getElementById(id).classList.add('active');
       }
 
-      function mostrarResultadoFiltros(tipo, mensagem) {
-        var div = document.getElementById('f_resultado');
+      function mostrarResultado(area, tipo, mensagem) {
+        var div = document.getElementById(area + '_resultado');
         div.className = 'resultado ' + tipo;
         div.textContent = mensagem;
       }
@@ -4959,19 +6447,25 @@ function mostrarModalRelatoriosAvancados() {
       function exportarPDF(btn) {
         var aba = document.getElementById('aba_pdf').value;
         if (!aba) return alert('Selecione uma aba');
-        btn.innerText = 'Gerando...';
+        
+        btn.innerText = '⏳ Gerando...';
         btn.disabled = true;
+        mostrarResultado('pdf', 'info', 'Gerando PDF e salvando no Drive...');
+
         google.script.run
           .withSuccessHandler(function (res) {
-              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.innerText = '🚀 Exportar para o Drive';
               btn.disabled = false;
-              if (res && res.success) { alert('Salvo no Drive!\\nUpload completado.'); }
-              else { alert('Erro: ' + res.error); }
+              if (res && res.success) { 
+                mostrarResultado('pdf', 'success', '✅ Salvo com sucesso!\\nArquivo: ' + res.nome + '\\nPasta: ' + res.pasta); 
+              } else { 
+                mostrarResultado('pdf', 'error', '❌ Erro: ' + res.error); 
+              }
           })
           .withFailureHandler(function (err) {
-              btn.innerText = 'Exportar PDF (Google Drive)';
+              btn.innerText = '🚀 Exportar para o Drive';
               btn.disabled = false;
-              alert('Erro de conexão: ' + err.message);
+              mostrarResultado('pdf', 'error', '❌ Erro de conexão: ' + err.message);
           })
           .exportarAbaParaPDF(aba);
       }
@@ -4980,24 +6474,30 @@ function mostrarModalRelatoriosAvancados() {
         var email = document.getElementById('dest').value;
         var aba = document.getElementById('aba_email').value;
         var msg = document.getElementById('msg').value;
+        
         if (!email || !aba) {
             alert('Preencha os campos obrigatórios (Email e Aba)');
             return;
         }
 
-        btn.innerText = 'Enviando email...';
+        btn.innerText = '⏳ Enviando...';
         btn.disabled = true;
+        mostrarResultado('email', 'info', 'Gerando PDF e enviando email...');
+
         google.script.run
           .withSuccessHandler(function (res) {
-              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.innerText = '📧 Enviar Email HTML + PDF';
               btn.disabled = false;
-              if (res && res.success) alert('\\u2705 Email enviado com sucesso!');
-              else alert('Falha ao Enviar: ' + (res && res.error ? res.error : 'Erro desconhecido ao enviar o email.'));
+              if (res && res.success) {
+                mostrarResultado('email', 'success', '✅ Email enviado com sucesso!');
+              } else {
+                mostrarResultado('email', 'error', '❌ Falha: ' + (res && res.error ? res.error : 'Erro desconhecido.'));
+              }
           })
           .withFailureHandler(function (err) {
-              btn.innerText = 'Enviar Email HTML + PDF';
+              btn.innerText = '📧 Enviar Email HTML + PDF';
               btn.disabled = false;
-              alert('Erro de conexão: ' + err.message);
+              mostrarResultado('email', 'error', '❌ Erro de conexão: ' + err.message);
           })
           .enviarRelatorioPorEmail(aba, email, 'Novo Relatório Gerado', msg);
       }
@@ -5007,38 +6507,28 @@ function mostrarModalRelatoriosAvancados() {
         var competencia = document.getElementById('f_competencia').value;
         var departamento = document.getElementById('f_dpto').value;
         var status = document.getElementById('f_status').value;
-        var exigeCompetencia = ['folha', 'beneficios', 'variavel', 'apontamentos'].indexOf(tipo) !== -1;
-
-        if (!tipo) {
-          mostrarResultadoFiltros('error', 'Selecione o tipo de relatório.');
-          return;
-        }
-
-        if (exigeCompetencia && !competencia) {
-          mostrarResultadoFiltros('error', 'Informe a competência no formato MM/AAAA ou MMAAAA.');
-          return;
-        }
+        
+        if (!tipo) return mostrarResultado('f', 'error', 'Selecione o tipo.');
 
         btn.innerText = '⏳ Gerando...';
         btn.disabled = true;
-        mostrarResultadoFiltros('info', 'Gerando relatório com os filtros informados...');
+        mostrarResultado('f', 'info', 'Processando filtros na API...');
 
         google.script.run
           .withSuccessHandler(function (res) {
             btn.innerText = '📊 Executar Filtros';
             btn.disabled = false;
-
             if (res && res.success) {
-              mostrarResultadoFiltros('success', '✅ Relatório gerado com sucesso! Aba criada: ' + res.aba);
+              mostrarResultado('f', 'success', '✅ Sucesso! Aba: ' + res.aba);
               setTimeout(function () { google.script.host.close(); }, 1500);
             } else {
-              mostrarResultadoFiltros('error', res && res.error ? res.error : 'Erro desconhecido ao gerar relatório.');
+              mostrarResultado('f', 'error', '❌ ' + (res && res.error ? res.error : 'Erro desconhecido.'));
             }
           })
           .withFailureHandler(function (err) {
             btn.innerText = '📊 Executar Filtros';
             btn.disabled = false;
-            mostrarResultadoFiltros('error', 'Erro de conexão: ' + err.message);
+            mostrarResultado('f', 'error', '❌ Erro de conexão: ' + err.message);
           })
           .gerarRelatorioComFiltrosAPI({
             tipo: tipo,
@@ -5050,8 +6540,9 @@ function mostrarModalRelatoriosAvancados() {
     </script>
     `).setWidth(480).setHeight(640);
 
-    SpreadsheetApp.getUi().showModalDialog(html, 'Relatórios Avançados');
+    SpreadsheetApp.getUi().showModalDialog(html, 'Central de Relatórios');
 }
+
 
 function obterNomeBaseRelatorioPorTipo(tipo) {
     var mapa = {
@@ -5387,6 +6878,7 @@ function gerarRelatorioComFiltrosAPI(filtros) {
             return { success: false, error: resultado && resultado.error ? resultado.error : 'Não foi possível gerar o relatório com os filtros informados.' };
         }
 
+
         criarAbaRelatorio(tipo, nomeRelatorio, resultado, periodo);
         return {
             success: true,
@@ -5397,3 +6889,150 @@ function gerarRelatorioComFiltrosAPI(filtros) {
         return { success: false, error: e.message };
     }
 }
+
+// =====================================================
+// AUXILIARES DE DRIVE E PASTAS
+// =====================================================
+
+/**
+ * Obtém a pasta configurada no Drive ou a padrão.
+ * @returns {GoogleAppsScript.Drive.Folder}
+ */
+function obterPastaPadraoRelatorios() {
+    const props = PropertiesService.getScriptProperties();
+    let folderId = props.getProperty(RELATORIOS_DRIVE_CONFIG.FOLDER_PROP_KEY);
+
+    if (!folderId) {
+        folderId = RELATORIOS_DRIVE_CONFIG.DEFAULT_FOLDER_ID;
+    }
+
+    try {
+        return DriveApp.getFolderById(folderId);
+    } catch (e) {
+        Logger.log('Erro ao acessar pasta configurada (' + folderId + '). Usando raiz.');
+        return DriveApp.getRootFolder();
+    }
+}
+
+/**
+ * Retorna informações sobre a pasta atual para a UI.
+ */
+function obterPastaRelatoriosInfo() {
+    try {
+        const pasta = obterPastaPadraoRelatorios();
+        return {
+            success: true,
+            nome: pasta.getName(),
+            id: pasta.getId(),
+            url: pasta.getUrl()
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Configura uma nova pasta via ID ou URL.
+ * @param {string} input ID ou URL da pasta.
+ */
+function configurarPastaRelatoriosDrive(input) {
+    try {
+        const folderId = extrairFolderIdDrive(input);
+        if (!folderId) throw new Error('ID ou URL da pasta inválido.');
+
+        const folder = DriveApp.getFolderById(folderId);
+        PropertiesService.getScriptProperties().setProperty(RELATORIOS_DRIVE_CONFIG.FOLDER_PROP_KEY, folderId);
+
+        return { success: true, nome: folder.getName() };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Extrai o ID de uma string (pode ser o próprio ID ou uma URL).
+ */
+function extrairFolderIdDrive(input) {
+    if (!input) return null;
+    const match = input.match(/[-\w]{25,}/);
+    return match ? match[0] : input.trim();
+}
+
+/**
+ * Gera um nome de arquivo padronizado para o relatório.
+ * Ex: Sistema RH - Relatorio - Folha de Pagamento - 2026-05-04_14-30-00.pdf
+ */
+function gerarNomeArquivoRelatorio(nomeAba) {
+    const agora = new Date();
+    const timestamp = Utilities.formatDate(agora, Session.getScriptTimeZone(), "yyyy-MM-dd_HH-mm-ss");
+    
+    // Tenta identificar o tipo de relatório pelo nome da aba
+    let tipo = "Relatorio";
+    const nomeLimpo = nomeAba.toLowerCase();
+    
+    if (nomeLimpo.indexOf('folha') > -1) tipo = "Folha de Pagamento";
+    else if (nomeLimpo.indexOf('benef') > -1) tipo = "Beneficios";
+    else if (nomeLimpo.indexOf('vari') > -1) tipo = "Remuneracao Variavel";
+    else if (nomeLimpo.indexOf('apont') > -1) tipo = "Apontamentos";
+    else if (nomeLimpo.indexOf('seguro') > -1) tipo = "Seguros";
+    
+    return "Sistema RH - " + tipo + " - " + nomeAba + " - " + timestamp + ".pdf";
+}
+
+/**
+ * Abre o modal de configuração de pasta.
+ */
+function abrirConfiguracaoPastaRelatorios() {
+    const info = obterPastaRelatoriosInfo();
+    const html = HtmlService.createHtmlOutput(`
+    <style>
+      body { font-family: sans-serif; padding: 20px; line-height: 1.5; }
+      .info { background: #f1f3f4; padding: 10px; border-radius: 4px; margin-bottom: 20px; font-size: 13px; }
+      input { width: 100%; padding: 8px; box-sizing: border-box; margin: 10px 0; border: 1px solid #ccc; border-radius: 4px; }
+      button { padding: 10px 15px; background: #1a73e8; color: white; border: none; border-radius: 4px; cursor: pointer; }
+      .secondary { background: none; color: #5f6368; margin-left: 10px; }
+    </style>
+    <h3>Configurar Pasta de Destino</h3>
+    <div class="info">
+      <strong>Pasta Atual:</strong> ${info.success ? info.nome : 'Erro ao obter'}<br>
+      <strong>ID:</strong> ${info.success ? info.id : '-'}<br>
+      <a href="${info.success ? info.url : '#'}" target="_blank">Abrir no Drive</a>
+    </div>
+    <p>Cole abaixo o ID ou a URL da nova pasta do Google Drive:</p>
+    <input type="text" id="folderInput" placeholder="https://drive.google.com/drive/folders/...">
+    <button onclick="salvar()">Salvar Configuração</button>
+    <button class="secondary" onclick="google.script.host.close()">Cancelar</button>
+
+    <script>
+      function salvar() {
+        const val = document.getElementById('folderInput').value;
+        if (!val) return alert('Informe um ID ou URL');
+        google.script.run
+          .withSuccessHandler(res => {
+            if (res.success) {
+              alert('Configurado com sucesso! Nova pasta: ' + res.nome);
+              google.script.host.close();
+            } else alert('Erro: ' + res.error);
+          })
+          .configurarPastaRelatoriosDrive(val);
+      }
+    </script>
+    `).setWidth(450).setHeight(400);
+    
+    SpreadsheetApp.getUi().showModalDialog(html, 'Configuração de Pasta');
+}
+
+/**
+ * Executa um diagnóstico rápido da pasta de relatórios.
+ */
+function diagnosticarPastaRelatorios() {
+    const ui = SpreadsheetApp.getUi();
+    const info = obterPastaRelatoriosInfo();
+    
+    if (info.success) {
+        ui.alert('✅ Pasta Acessível\n\nNome: ' + info.nome + '\nID: ' + info.id + '\n\nO sistema está pronto para exportar PDFs para este local.');
+    } else {
+        ui.alert('❌ Erro de Acesso\n\nNão foi possível acessar a pasta configurada. Verifique as permissões ou reconfigure o ID da pasta.\n\nDetalhe: ' + info.error);
+    }
+}
+

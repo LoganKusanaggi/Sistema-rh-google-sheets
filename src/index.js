@@ -6,88 +6,77 @@ const routes = require('./routes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Configuração de ambiente
+const isProduction = process.env.NODE_ENV === 'production';
+
 // Middlewares
 app.use(cors({
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Logging middleware
+// Logging middleware (Seguro para produção)
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path}`);
     next();
 });
 
 // FIX EMERGÊNCIA: Rota explícita PRIORITÁRIA para dependentes
-// Deve vir ANTES de app.use('/api', routes) para garantir que capture
 const dependentesController = require('./controllers/dependentesController');
-app.put('/api/dependentes/:id', (req, res, next) => {
-    console.log('[DEBUG INDEX TOP] Acessou PUT /api/dependentes/' + req.params.id);
-    next();
-}, dependentesController.atualizar);
+app.put('/api/dependentes/:id', dependentesController.atualizar);
 
-// Rotas Gerais
+// Montagem Principal das Rotas
 app.use('/api', routes);
 
-// Rota raiz
+// Rota raiz / status
 app.get('/', (req, res) => {
     res.json({
+        success: true,
         status: 'online',
-        message: 'API Sistema RH - v2.1 FIX ROUTING',
-        version: '2.1.0',
-        timestamp: new Date().toISOString(),
-        endpoints: {
-            colaboradores: '/api/colaboradores',
-            folha: '/api/folha',
-            beneficios: '/api/beneficios',
-            variavel: '/api/variavel',
-            apontamentos: '/api/apontamentos',
-            seguros: '/api/seguros',
-            relatorios: '/api/relatorios/gerar'
-        }
+        message: 'API Sistema RH - v2.2 ACTIVE ADMIN',
+        version: '2.2.0',
+        timestamp: new Date().toISOString()
     });
 });
 
-// 404 Handler
+// 404 Handler - Padronizado
 app.use((req, res) => {
+    console.warn(`[404] ${req.method} ${req.path} - Endpoint não encontrado`);
     res.status(404).json({
-        error: true,
-        message: 'Endpoint não encontrado',
+        success: false,
+        error: 'Endpoint não encontrado',
         path: req.path,
         method: req.method
     });
 });
 
-// Error Handler
+// Global Error Handler - Padronizado
 app.use((err, req, res, next) => {
-    console.error('Erro:', err);
-    res.status(err.status || 500).json({
-        error: true,
-        message: err.message || 'Erro interno do servidor',
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    console.error(`[ERROR] ${req.method} ${req.path}:`, err);
+    
+    const statusCode = err.status || 500;
+    const message = err.message || 'Erro interno do servidor';
+
+    res.status(statusCode).json({
+        success: false,
+        error: message,
+        ...( !isProduction && { stack: err.stack, details: err })
     });
 });
 
-// Iniciar servidor
-if (process.env.NODE_ENV !== 'production') {
+// Iniciar servidor local
+if (!isProduction) {
     app.listen(PORT, () => {
         console.log('===============================================');
-        console.log('🚀 API Sistema RH v2.0 - ONLINE');
+        console.log('🚀 API Sistema RH v2.2 - ONLINE (LOCAL)');
         console.log('===============================================');
         console.log(`📍 URL: http://localhost:${PORT}`);
         console.log(`📊 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-        console.log(`⏰ Iniciado em: ${new Date().toLocaleString('pt-BR')}`);
-        console.log('===============================================');
-        console.log('Endpoints disponíveis:');
-        console.log('  GET  /');
-        console.log('  GET  /api/health');
-        console.log('  POST /api/colaboradores/buscar');
-        console.log('  POST /api/relatorios/gerar');
-        console.log('  GET  /api/relatorios/tipos');
         console.log('===============================================');
     });
 }

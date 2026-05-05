@@ -149,5 +149,146 @@ module.exports = {
             console.error('Erro ao remover plano:', error);
             res.status(500).json({ success: false, error: error.message });
         }
+    },
+
+    // === ADMIN FUNCTIONS ===
+
+    // Listar todos os planos incluindo inativos (Admin)
+    async adminListarCompleto(req, res) {
+        try {
+            const { data, error } = await supabase
+                .from('planos')
+                .select(`
+                    *,
+                    precos:planos_precos(*)
+                `)
+                .order('nome');
+
+            if (error) throw error;
+            res.json({ success: true, data });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Salvar ou Atualizar Plano (Admin)
+    async adminSalvar(req, res) {
+        try {
+            const { id, nome, tipo, codigo_ref, ativo, precos } = req.body;
+
+            // 1. Salvar o Plano
+            const planoData = { 
+                nome, 
+                tipo, 
+                codigo_ref, 
+                ativo: ativo !== false 
+            };
+            
+            let planoId = id;
+
+            if (id) {
+                const { error } = await supabase.from('planos').update(planoData).eq('id', id);
+                if (error) throw error;
+            } else {
+                const { data, error } = await supabase.from('planos').insert(planoData).select('id').single();
+                if (error) throw error;
+                planoId = data.id;
+            }
+
+            // 2. Salvar Preços (se fornecidos)
+            if (precos && Array.isArray(precos)) {
+                // Preparar dados de preços
+                const precosData = precos.map(p => ({
+                    plano_id: planoId,
+                    faixa_etaria: p.faixa_etaria,
+                    valor: parseFloat(p.valor) || 0,
+                    ativo: p.ativo !== false
+                }));
+
+                // UPSERT preços baseados na restrição (plano_id, faixa_etaria)
+                const { error: pError } = await supabase
+                    .from('planos_precos')
+                    .upsert(precosData, { onConflict: 'plano_id,faixa_etaria' });
+                
+                if (pError) throw pError;
+            }
+
+            res.json({ success: true, message: 'Plano e preços salvos com sucesso.', id: planoId });
+        } catch (error) {
+            console.error('Erro ao salvar plano (admin):', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Excluir ou Inativar Plano (Admin)
+    async adminExcluir(req, res) {
+        try {
+            const { id } = req.params;
+            const { hard } = req.query; // Se 'true', exclui permanentemente
+
+            if (hard === 'true') {
+                const { error } = await supabase.from('planos').delete().eq('id', id);
+                if (error) throw error;
+            } else {
+                const { error } = await supabase.from('planos').update({ ativo: false }).eq('id', id);
+                if (error) throw error;
+            }
+
+            res.json({ success: true, message: 'Operação realizada com sucesso.' });
+        } catch (error) {
+            res.status(500).json({ success: false, error: error.message });
+        }
+    },
+
+    // Diagnóstico de Planos (Admin)
+    async adminDiagnostico(req, res) {
+        try {
+            // 1. Buscar todos os preços
+            const { data: todosPrecos, error: pError } = await supabase
+                .from('planos_precos')
+                .select('id, plano_id, faixa_etaria, valor');
+
+            if (pError) throw pError;
+
+            // 2. Detectar duplicatas manualmente (JS) como fallback/apoio
+            const agrupado = {};
+            const duplicatas = [];
+
+            todosPrecos.forEach(p => {
+                const chave = `${p.plano_id}|${p.faixa_etaria}`;
+                if (!agrupado[chave]) {
+                    agrupado[chave] = [];
+                }
+                agrupado[chave].push(p);
+            });
+
+            Object.keys(agrupado).forEach(chave => {
+                if (agrupado[chave].length > 1) {
+                    duplicatas.push({
+                        chave,
+                        items: agrupado[chave]
+                    });
+                }
+            });
+
+            // 3. Buscar planos sem preços
+            const { data: planosSemPrecos, error: psError } = await supabase
+                .from('planos')
+                .select('id, nome')
+                .not('id', 'in', `(${todosPrecos.map(p => p.plano_id).join(',') || 0})`);
+
+            res.json({ 
+                success: true, 
+                diagnostico: {
+                    total_precos: todosPrecos.length,
+                    duplicatas_encontradas: duplicatas.length,
+                    planos_incompletos: planosSemPrecos || [],
+                    detalhes_duplicatas: duplicatas
+                }
+            });
+        } catch (error) {
+            console.error('Erro no diagnóstico:', error);
+            res.status(500).json({ success: false, error: error.message });
+        }
     }
 };

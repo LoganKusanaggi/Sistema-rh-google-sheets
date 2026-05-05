@@ -41,7 +41,7 @@ function onOpen() {
         .addSeparator()
         .addSubMenu(ui.createMenu('📝 Lançamentos')
             .addItem('💰 Lançar Folha', 'lancarFolha')
-            .addItem('🚀 Enviar Folha para Sistema', 'enviarFolhaParaAPI') // <--- NOVO
+            .addItem('🚀 Enviar Folha para Sistema', 'enviarFolhaParaAPI')
             .addSeparator()
             .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
             .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
@@ -61,10 +61,19 @@ function onOpen() {
             .addSeparator()
             .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
         .addSeparator()
+        .addSubMenu(ui.createMenu('⚙️ Configurações')
+            .addItem('📋 Gerenciar Planos (Saúde/Odonto)', 'abrirGerenciamentoPlanos')
+            .addItem('👤 Gerenciar Administradores', 'abrirGerenciamentoAdministradoresSistemaRH')
+            .addItem('🧪 Diagnosticar Módulo Planos', 'diagnosticarModuloAdminPlanos')
+            .addSeparator()
+            .addItem('📁 Configurar Pasta de Relatórios', 'configurarPastaDestino')
+            .addItem('🔍 Diagnosticar Pasta de Relatórios', 'diagnosticarPastaRelatorios')
+            .addSeparator()
+            .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
+            .addItem('📜 Histórico de Versões', 'listarHistoricoModal'))
         .addSeparator()
-        .addItem('📜 Histórico de Versões', 'listarHistoricoModal') // <--- NOVO
-        .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
-        .addItem('⚙️ Configurações', 'abrirConfiguracoes')
+        .addItem('🔐 Autorizar PDF/E-mail', 'autorizarPermissoesEmailRelatorio')
+        .addItem('🧪 Diagnosticar PDF/E-mail', 'diagnosticarEmailRelatorio')
         .addToUi();
 }
 
@@ -6152,70 +6161,7 @@ function enviarRelatorioPorEmail(nomeAba, emailsDestino, assunto, HTMLmsg) {
     }
 }
 
-function testarPermissoesEmailRelatorio() {
-    const ui = SpreadsheetApp.getUi();
 
-    try {
-        const ss = SpreadsheetApp.getActiveSpreadsheet();
-        const nomeAba = ss.getActiveSheet().getName();
-        const resPdf = gerarPdfBlobDaAba(nomeAba);
-
-        if (!resPdf.success) {
-            throw new Error(resPdf.error);
-        }
-
-        Logger.log('Quota diaria restante de email: ' + MailApp.getRemainingDailyQuota());
-        ui.alert('Permissoes de PDF/e-mail verificadas. Se foi solicitada autorizacao, aceite e execute novamente.');
-    } catch (e) {
-        ui.alert('Erro ao verificar permissoes de PDF/e-mail: ' + e.message);
-    }
-}
-
-// =====================================================
-// OVERRIDES FINAIS - AUTORIZACAO DE PDF/E-MAIL
-// =====================================================
-
-function onOpen() {
-    const ui = SpreadsheetApp.getUi();
-    ui.createMenu('🔄 Sistema RH')
-        .addItem('📈 Dashboard Gerencial RH', 'abrirDashboardModal')
-        .addSeparator()
-        .addSubMenu(ui.createMenu('👥 Colaboradores')
-            .addItem('🔍 Buscar Colaborador', 'buscarColaboradorModal')
-            .addItem('➕ Novo Colaborador', 'novoColaboradorModal')
-            .addItem('📝 Editar Selecionados', 'editarSelecionados')
-            .addItem('🗑️ Excluir Selecionados', 'excluirSelecionados'))
-        .addSeparator()
-        .addSubMenu(ui.createMenu('📝 Lançamentos')
-            .addItem('💰 Lançar Folha', 'lancarFolha')
-            .addItem('🚀 Enviar Folha para Sistema', 'enviarFolhaParaAPI')
-            .addSeparator()
-            .addItem('🎁 Lançar Benefícios', 'lancarBeneficios')
-            .addItem('🚀 Enviar Benefícios', 'enviarBeneficiosParaAPI')
-            .addSeparator()
-            .addItem('📊 Lançar Variável', 'lancarVariavel')
-            .addItem('🚀 Enviar Variável', 'enviarVariavelParaAPI')
-            .addSeparator()
-            .addItem('⏰ Lançar Apontamentos', 'lancarApontamentos')
-            .addItem('🚀 Enviar Apontamentos', 'enviarApontamentosParaAPI'))
-        .addSeparator()
-        .addSubMenu(ui.createMenu('📄 Relatórios')
-            .addItem('💰 Folha de Pagamento', 'gerarRelatorioFolha')
-            .addItem('🎁 Benefícios Caju', 'gerarRelatorioBeneficios')
-            .addItem('📊 Apuração de Variável', 'gerarRelatorioVariavel')
-            .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
-            .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros')
-            .addSeparator()
-            .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
-        .addSeparator()
-        .addSeparator()
-        .addItem('📜 Histórico de Versões', 'listarHistoricoModal')
-        .addItem('🔄 Atualizar Dashboard', 'atualizarDashboard')
-        .addItem('⚙️ Configurações', 'abrirConfiguracoes')
-        .addItem('🔐 Autorizar PDF/E-mail', 'autorizarPermissoesEmailRelatorio')
-        .addItem('🧪 Diagnosticar PDF/E-mail', 'diagnosticarEmailRelatorio')
-        .addToUi();
-}
 
 function ehErroPermissaoEmailRelatorio(mensagem) {
     var texto = String(mensagem || '').toLowerCase();
@@ -6942,7 +6888,6 @@ function gerarRelatorioComFiltrosAPI(filtros) {
             return { success: false, error: 'Nenhum colaborador encontrado para os filtros informados.' };
         }
 
-        var resultado = chamarAPIRelatorio(tipo, cpfs, periodo);
         if (!resultado || resultado.success === false) {
             return { success: false, error: resultado && resultado.error ? resultado.error : 'Não foi possível gerar o relatório com os filtros informados.' };
         }
@@ -6957,3 +6902,1015 @@ function gerarRelatorioComFiltrosAPI(filtros) {
         return { success: false, error: e.message };
     }
 }
+
+// =====================================================
+// GERENCIAMENTO ADMINISTRATIVO DE PLANOS (SAÚDE/ODONTO)
+// =====================================================
+
+/**
+ * Abre o modal administrativo para gerenciar planos e preços.
+ */
+function abrirGerenciamentoPlanos() {
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <base target="_top">
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        :root {
+          --primary: #2563eb;
+          --primary-hover: #1d4ed8;
+          --bg: #f8fafc;
+          --card: #ffffff;
+          --text: #1e293b;
+          --text-light: #64748b;
+          --border: #e2e8f0;
+          --success: #10b981;
+          --danger: #ef4444;
+          --warning: #f59e0b;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+          font-family: 'Inter', sans-serif; 
+          background: var(--bg); 
+          color: var(--text);
+          height: 100vh;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .header {
+          background: white;
+          padding: 20px 30px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .header h1 { font-size: 1.25rem; font-weight: 700; color: #0f172a; }
+        
+        .tabs {
+          display: flex;
+          background: white;
+          padding: 0 30px;
+          border-bottom: 1px solid var(--border);
+        }
+        
+        .tab {
+          padding: 15px 20px;
+          cursor: pointer;
+          font-weight: 500;
+          color: var(--text-light);
+          border-bottom: 2px solid transparent;
+          transition: all 0.2s;
+        }
+        
+        .tab.active {
+          color: var(--primary);
+          border-bottom-color: var(--primary);
+        }
+        
+        .content {
+          flex: 1;
+          padding: 30px;
+          overflow-y: auto;
+          display: flex;
+          gap: 20px;
+        }
+        
+        .sidebar {
+          width: 300px;
+          background: white;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .sidebar-header {
+          padding: 15px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .sidebar-list {
+          flex: 1;
+          overflow-y: auto;
+        }
+        
+        .plan-item {
+          padding: 12px 15px;
+          border-bottom: 1px solid var(--border);
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        
+        .plan-item:hover { background: #f1f5f9; }
+        .plan-item.active { background: #eff6ff; border-left: 4px solid var(--primary); }
+        .plan-item .name { font-weight: 600; font-size: 0.875rem; margin-bottom: 4px; }
+        .plan-item .meta { font-size: 0.75rem; color: var(--text-light); display: flex; justify-content: space-between; }
+        
+        .main-panel {
+          flex: 1;
+          background: white;
+          border: 1px solid var(--border);
+          border-radius: 12px;
+          display: flex;
+          flex-direction: column;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .panel-header {
+          padding: 20px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .panel-body { padding: 25px; overflow-y: auto; }
+        
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 8px; }
+        .form-group input, .form-group select {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          font-size: 0.875rem;
+          outline: none;
+        }
+        
+        .form-group input:focus { border-color: var(--primary); ring: 2px solid #bfdbfe; }
+        
+        .price-grid {
+          width: 100%;
+          border-collapse: collapse;
+          margin-top: 10px;
+        }
+        
+        .price-grid th { text-align: left; padding: 12px; font-size: 0.75rem; color: var(--text-light); text-transform: uppercase; border-bottom: 2px solid var(--border); }
+        .price-grid td { padding: 12px; border-bottom: 1px solid var(--border); }
+        .price-grid input { width: 100px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; }
+        
+        .btn {
+          padding: 10px 18px;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 0.875rem;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text); }
+        .btn-outline:hover { background: #f8fafc; }
+        .btn-danger { background: #fee2e2; color: var(--danger); }
+        .btn-danger:hover { background: #fecaca; }
+        
+        .status-badge {
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+        .status-active { background: #d1fae5; color: #065f46; }
+        .status-inactive { background: #f1f5f9; color: #475569; }
+        
+        .loading-overlay {
+          position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(255,255,255,0.8);
+          display: none; justify-content: center; align-items: center;
+          z-index: 100;
+          border-radius: 12px;
+        }
+        
+        .spinner {
+          width: 40px; height: 40px;
+          border: 4px solid #f3f3f3; border-top: 4px solid var(--primary);
+          border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .empty-state {
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          height: 100%; color: var(--text-light); text-align: center;
+        }
+        
+        .toast {
+          position: fixed; bottom: 20px; right: 20px;
+          padding: 12px 20px; border-radius: 8px;
+          color: white; font-weight: 500;
+          transform: translateY(100px); transition: transform 0.3s;
+          z-index: 1000;
+        }
+        .toast.show { transform: translateY(0); }
+        .toast-success { background: var(--success); }
+        .toast-error { background: var(--danger); }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1>⚙️ Gerenciamento de Planos</h1>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-outline" onclick="diagnosticar()">🔍 Diagnóstico</button>
+          <button class="btn btn-outline" onclick="google.script.host.close()">Fechar</button>
+        </div>
+      </div>
+      
+      <div class="tabs">
+        <div class="tab active" id="tab-saude" onclick="switchTab('SAUDE')">🩺 Saúde</div>
+        <div class="tab" id="tab-odonto" onclick="switchTab('ODONTO')">🦷 Odonto</div>
+      </div>
+      
+      <div class="content">
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <span id="plan-count">0 planos</span>
+            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 0.75rem;" onclick="novoPlano()">+ Novo</button>
+          </div>
+          <div class="sidebar-list" id="plan-list">
+            <!-- Planos injetados aqui -->
+          </div>
+        </div>
+        
+        <div class="main-panel" style="position: relative;">
+          <div id="loading" class="loading-overlay"><div class="spinner"></div></div>
+          
+          <div id="editor-empty" class="empty-state">
+            <p>Selecione um plano à esquerda para editar<br>ou clique em "Novo" para criar.</p>
+          </div>
+          
+          <div id="editor-form" style="display: none; flex-direction: column; height: 100%;">
+            <div class="panel-header">
+              <h2 id="editor-title">Editar Plano</h2>
+              <div style="display: flex; gap: 10px;">
+                <button class="btn btn-outline" onclick="cancelarEdicao()">Cancelar</button>
+                <button class="btn btn-primary" onclick="salvarPlano()">💾 Salvar</button>
+              </div>
+            </div>
+            
+            <div class="panel-body">
+              <input type="hidden" id="f-id">
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                  <label>Nome do Plano</label>
+                  <input type="text" id="f-nome" placeholder="Ex: AMIL S580 QP">
+                </div>
+                <div class="form-group">
+                  <label>Código Referência</label>
+                  <input type="text" id="f-codigo" placeholder="Ex: 962680">
+                </div>
+              </div>
+              
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div class="form-group">
+                  <label>Tipo</label>
+                  <select id="f-tipo" disabled>
+                    <option value="SAUDE">Saúde</option>
+                    <option value="ODONTO">Odonto</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Status</label>
+                  <select id="f-ativo">
+                    <option value="true">Ativo</option>
+                    <option value="false">Inativo</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div style="margin-top: 20px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <h3 style="font-size: 1rem; font-weight: 700;">💰 Tabela de Preços</h3>
+                  <button class="btn btn-outline" style="padding: 4px 10px; font-size: 0.75rem;" onclick="adicionarFaixa()">+ Faixa</button>
+                </div>
+                
+                <table class="price-grid">
+                  <thead>
+                    <tr>
+                      <th>Faixa Etária</th>
+                      <th>Valor (R$)</th>
+                      <th style="width: 50px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="price-list">
+                    <!-- Faixas injetadas aqui -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div id="toast" class="toast"></div>
+
+      <script>
+        let allPlans = [];
+        let currentTab = 'SAUDE';
+        let currentPlan = null;
+        
+        function extrairMensagemErro(err) {
+            if (!err) return 'Erro desconhecido.';
+            if (typeof err === 'string') return err;
+            if (err.message) return err.message;
+            if (err.error) return String(err.error);
+            try { return JSON.stringify(err); } catch (e) { return String(err); }
+        }
+
+        window.onload = () => carregarPlanos();
+        
+        function showLoading(show) {
+          document.getElementById('loading').style.display = show ? 'flex' : 'none';
+        }
+        
+        function showToast(msg, type = 'success') {
+          const toast = document.getElementById('toast');
+          toast.textContent = msg;
+          toast.className = 'toast show toast-' + type;
+          setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+        
+        function switchTab(type) {
+          currentTab = type;
+          document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+          document.getElementById('tab-' + type.toLowerCase()).classList.add('active');
+          renderList();
+          cancelarEdicao();
+        }
+        
+        function carregarPlanos() {
+          showLoading(true);
+          google.script.run
+            .withSuccessHandler(res => {
+              showLoading(false);
+              if (res && res.success) {
+                allPlans = res.data || [];
+                renderList();
+              } else {
+                showToast(extrairMensagemErro(res), 'error');
+              }
+            })
+            .withFailureHandler(err => {
+              showLoading(false);
+              showToast(extrairMensagemErro(err), 'error');
+            })
+            .listarPlanosAdminAPI();
+        }
+        
+        function renderList() {
+          const list = document.getElementById('plan-list');
+          const filtered = allPlans.filter(p => p.tipo === currentTab);
+          document.getElementById('plan-count').textContent = filtered.length + ' planos';
+          
+          if (filtered.length === 0) {
+              list.innerHTML = '<div class="empty-state">Nenhum plano cadastrado.</div>';
+              return;
+          }
+          
+          list.innerHTML = filtered.map(p => \`
+            <div class="plan-item \${currentPlan && currentPlan.id === p.id ? 'active' : ''}" onclick="editarPlano(\${p.id})">
+              <div class="name">\${p.nome}</div>
+              <div class="meta">
+                <span>Ref: \${p.codigo_ref || '-'}</span>
+                <span class="status-badge \${p.ativo ? 'status-active' : 'status-inactive'}">\${p.ativo ? 'Ativo' : 'Inativo'}</span>
+              </div>
+            </div>
+          \`).join('');
+        }
+        
+        function novoPlano() {
+          currentPlan = {
+            id: null, nome: '', tipo: currentTab, codigo_ref: '', ativo: true,
+            precos: currentTab === 'SAUDE' ? gerarFaixasDefaultSaude() : gerarFaixasDefaultOdonto()
+          };
+          mostrarEditor();
+        }
+        
+        function editarPlano(id) {
+          currentPlan = allPlans.find(p => p.id === id);
+          mostrarEditor();
+        }
+        
+        function mostrarEditor() {
+          document.getElementById('editor-empty').style.display = 'none';
+          document.getElementById('editor-form').style.display = 'flex';
+          document.getElementById('editor-title').textContent = currentPlan.id ? 'Editar Plano' : 'Novo Plano';
+          document.getElementById('f-id').value = currentPlan.id || '';
+          document.getElementById('f-nome').value = currentPlan.nome || '';
+          document.getElementById('f-codigo').value = currentPlan.codigo_ref || '';
+          document.getElementById('f-tipo').value = currentPlan.tipo;
+          document.getElementById('f-ativo').value = currentPlan.ativo ? 'true' : 'false';
+          renderPrecos();
+          renderList();
+        }
+        
+        function cancelarEdicao() {
+          currentPlan = null;
+          document.getElementById('editor-empty').style.display = 'flex';
+          document.getElementById('editor-form').style.display = 'none';
+          renderList();
+        }
+        
+        function renderPrecos() {
+          const tbody = document.getElementById('price-list');
+          tbody.innerHTML = (currentPlan.precos || []).map((p, idx) => \`
+            <tr>
+              <td><input type="text" style="width:100%" value="\${p.faixa_etaria}" onchange="updateFaixa(\${idx}, 'faixa_etaria', this.value)"></td>
+              <td><input type="number" step="0.01" value="\${p.valor}" onchange="updateFaixa(\${idx}, 'valor', this.value)"></td>
+              <td><button class="btn btn-danger" style="padding:4px" onclick="removerFaixa(\${idx})">✕</button></td>
+            </tr>
+          \`).join('');
+        }
+        
+        function updateFaixa(idx, campo, valor) {
+          currentPlan.precos[idx][campo] = valor;
+        }
+        
+        function adicionarFaixa() {
+          currentPlan.precos.push({ faixa_etaria: 'Nova Faixa', valor: 0, ativo: true });
+          renderPrecos();
+        }
+        
+        function removerFaixa(idx) {
+          currentPlan.precos.splice(idx, 1);
+          renderPrecos();
+        }
+        
+        function salvarPlano() {
+          const dados = {
+            id: document.getElementById('f-id').value || null,
+            nome: document.getElementById('f-nome').value,
+            codigo_ref: document.getElementById('f-codigo').value,
+            tipo: document.getElementById('f-tipo').value,
+            ativo: document.getElementById('f-ativo').value === 'true',
+            precos: currentPlan.precos
+          };
+          if (!dados.nome) return showToast('Nome do plano é obrigatório', 'error');
+          showLoading(true);
+          google.script.run
+            .withSuccessHandler(res => {
+              showLoading(false);
+              if (res && res.success) {
+                showToast('Plano salvo com sucesso!');
+                carregarPlanos();
+              } else {
+                showToast(extrairMensagemErro(res), 'error');
+              }
+            })
+            .withFailureHandler(err => {
+                showLoading(false);
+                showToast(extrairMensagemErro(err), 'error');
+            })
+            .salvarPlanoAdminAPI(dados);
+        }
+        
+        function diagnosticar() {
+          showLoading(true);
+          google.script.run
+            .withSuccessHandler(res => {
+              showLoading(false);
+              if (res.success) {
+                let msg = \`Diagnóstico concluído:\\n\\n\`;
+                msg += \`Total de faixas: \${res.diagnostico.total_precos}\\n\`;
+                msg += \`Duplicatas: \${res.diagnostico.duplicatas_encontradas}\\n\`;
+                msg += \`Planos incompletos: \${res.diagnostico.planos_incompletos.length}\\n\\n\`;
+                
+                if (res.diagnostico.duplicatas_encontradas > 0) {
+                  msg += "⚠️ Foram encontradas duplicatas. A migration de integridade deve ser executada para corrigir automaticamente.";
+                } else {
+                  msg += "✅ Tudo parece correto!";
+                }
+                alert(msg);
+              } else {
+                alert('Erro: ' + res.error);
+              }
+            })
+            .adminDiagnosticarPlanos();
+        }
+        
+        function gerarFaixasDefaultSaude() {
+          return [
+            { faixa_etaria: "0-18 anos", valor: 0 },
+            { faixa_etaria: "19-23 anos", valor: 0 },
+            { faixa_etaria: "24-28 anos", valor: 0 },
+            { faixa_etaria: "29-33 anos", valor: 0 },
+            { faixa_etaria: "34-38 anos", valor: 0 },
+            { faixa_etaria: "39-43 anos", valor: 0 },
+            { faixa_etaria: "44-48 anos", valor: 0 },
+            { faixa_etaria: "49-53 anos", valor: 0 },
+            { faixa_etaria: "54-58 anos", valor: 0 },
+            { faixa_etaria: "59 anos ou mais", valor: 0 }
+          ];
+        }
+        
+        function gerarFaixasDefaultOdonto() {
+          return [
+            { faixa_etaria: "Titular", valor: 0 },
+            { faixa_etaria: "Dependente", valor: 0 }
+          ];
+        }
+      </script>
+    </body>
+    </html>
+  `;
+  
+  const html = HtmlService.createHtmlOutput(htmlContent)
+    .setWidth(950)
+    .setHeight(700);
+    
+  SpreadsheetApp.getUi().showModalDialog(html, '⚙️ Gerenciamento de Planos');
+}
+
+/**
+ * Obtém o token de identidade do usuário atual para autorização no backend.
+ */
+function obterTokenIdentidadeAdminSistemaRH() {
+    try {
+        const token = ScriptApp.getIdentityToken();
+
+        if (!token) {
+            return {
+                success: false,
+                error: 'Não foi possível obter o token de identidade do usuário. Verifique se o escopo openid está autorizado no Apps Script.'
+            };
+        }
+
+        return {
+            success: true,
+            token: token
+        };
+    } catch (e) {
+        return {
+            success: false,
+            error: 'Erro ao obter token de identidade: ' + e.message
+        };
+    }
+}
+
+/**
+ * Helper centralizado para chamadas à API administrativa usando Google Identity Token.
+ */
+function chamarApiAdminSistemaRH(endpoint, method, payload) {
+    try {
+        const tokenRes = obterTokenIdentidadeAdminSistemaRH();
+
+        if (!tokenRes.success) {
+            return {
+                success: false,
+                error: tokenRes.error
+            };
+        }
+
+        const url = CONFIG.API_URL + endpoint;
+        const options = {
+            method: method || 'get',
+            muteHttpExceptions: true,
+            headers: {
+                'Authorization': 'Bearer ' + tokenRes.token
+            }
+        };
+
+        if (payload !== undefined && payload !== null) {
+            options.contentType = 'application/json';
+            options.payload = JSON.stringify(payload);
+        }
+
+        Logger.log('[Admin API] ' + String(options.method).toUpperCase() + ' ' + url);
+
+        const response = UrlFetchApp.fetch(url, options);
+        const status = response.getResponseCode();
+        const body = response.getContentText();
+
+        Logger.log('[Admin API] HTTP ' + status + ' Body: ' + body.substring(0, 1000));
+
+        let json = null;
+        try {
+            json = JSON.parse(body);
+        } catch (parseErr) {
+            return {
+                success: false,
+                error: 'A API retornou uma resposta inválida. HTTP ' + status + '. Resposta: ' + body.substring(0, 300),
+                debug: { endpoint: endpoint, url: url, status: status, parseError: parseErr.message }
+            };
+        }
+
+        if (status < 200 || status >= 300) {
+            return {
+                success: false,
+                error: json && json.error ? String(json.error) : 'Erro HTTP ' + status + ' ao chamar API administrativa.',
+                debug: { endpoint: endpoint, url: url, status: status, body: json }
+            };
+        }
+
+        if (json && json.success === false) {
+            return {
+                success: false,
+                error: json.error ? String(json.error) : 'A API administrativa retornou falha sem mensagem.',
+                debug: { endpoint: endpoint, url: url, status: status, body: json }
+            };
+        }
+
+        return json;
+    } catch (e) {
+        Logger.log('[Admin API] Exception: ' + e.message);
+        return {
+            success: false,
+            error: 'Falha ao chamar API administrativa: ' + e.message,
+            debug: { exception: e.message, endpoint: endpoint }
+        };
+    }
+}
+
+/**
+ * Busca todos os planos (incluindo inativos) do backend.
+ */
+function listarPlanosAdminAPI() {
+    return chamarApiAdminSistemaRH('/admin/planos', 'get');
+}
+
+/**
+ * Salva ou atualiza um plano e suas faixas.
+ */
+function salvarPlanoAdminAPI(dados) {
+    return chamarApiAdminSistemaRH('/admin/planos/salvar', 'post', dados);
+}
+
+/**
+ * Executa diagnóstico de integridade dos planos no servidor.
+ */
+function diagnosticarPlanosAdminAPI() {
+    return chamarApiAdminSistemaRH('/admin/planos/diagnostico', 'get');
+}
+
+/**
+ * Exclui um plano.
+ */
+function excluirPlanoAdminAPI(id) {
+    return chamarApiAdminSistemaRH('/admin/planos/' + id, 'delete');
+}
+
+/**
+ * Diagnóstico local do módulo administrativo usando Identity Token.
+ */
+function diagnosticarModuloAdminPlanos() {
+    const ui = SpreadsheetApp.getUi();
+    const logs = [];
+
+    try {
+        logs.push('Diagnóstico do módulo administrativo de planos');
+        logs.push('API base: ' + CONFIG.API_URL);
+        logs.push('Autorização: Google Identity Token via ScriptApp.getIdentityToken()');
+
+        const tokenRes = obterTokenIdentidadeAdminSistemaRH();
+        logs.push('Token de identidade obtido: ' + (tokenRes.success ? 'SIM' : 'NÃO'));
+
+        if (!tokenRes.success) {
+            logs.push('Erro token: ' + tokenRes.error);
+        }
+
+        const testeAuth = chamarApiAdminSistemaRH('/admin/auth/diagnostico', 'get');
+        logs.push('Teste auth admin: ' + (testeAuth.success ? 'SUCESSO' : 'FALHA'));
+        if (!testeAuth.success) logs.push('Erro auth: ' + testeAuth.error);
+
+        const testePlanos = listarPlanosAdminAPI();
+        logs.push('Teste listarPlanosAdminAPI: ' + (testePlanos.success ? 'SUCESSO' : 'FALHA'));
+        if (!testePlanos.success) logs.push('Erro planos: ' + testePlanos.error);
+
+        const testeDiag = diagnosticarPlanosAdminAPI();
+        logs.push('Teste diagnosticarPlanosAdminAPI: ' + (testeDiag.success ? 'SUCESSO' : 'FALHA'));
+        if (!testeDiag.success) logs.push('Erro diagnóstico: ' + testeDiag.error);
+
+        ui.alert('Diagnóstico Admin Planos', logs.join('\n\n'), ui.ButtonSet.OK);
+    } catch (e) {
+        ui.alert('Erro no Diagnóstico', e.message, ui.ButtonSet.OK);
+    }
+}
+
+// =====================================================
+// GESTÃO DE ADMINISTRADORES (BACKEND-BACKED)
+// =====================================================
+
+/**
+ * Wrappers para a API de Administradores
+ */
+function listarAdministradoresSistemaRHAPI() {
+    return chamarApiAdminSistemaRH('/admin/users', 'get');
+}
+
+function salvarAdministradorSistemaRHAPI(dados) {
+    return chamarApiAdminSistemaRH('/admin/users', 'post', dados);
+}
+
+function atualizarAdministradorSistemaRHAPI(id, dados) {
+    return chamarApiAdminSistemaRH('/admin/users/' + id, 'patch', dados);
+}
+
+function removerAdministradorSistemaRHAPI(id) {
+    return chamarApiAdminSistemaRH('/admin/users/' + id, 'delete');
+}
+
+/**
+ * Abre o modal de gerenciamento de administradores.
+ */
+function abrirGerenciamentoAdministradoresSistemaRH() {
+    const html = HtmlService.createHtmlOutput(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <base target="_top">
+      <style>
+        :root {
+          --primary: #2563eb;
+          --bg: #f8fafc;
+          --text: #1e293b;
+          --border: #e2e8f0;
+        }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 15px; margin: 0; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-ghost { background: transparent; border: 1px solid var(--border); }
+        .btn-ghost:hover { background: #f1f5f9; }
+        .admin-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .admin-info h4 { margin: 0; color: var(--text); }
+        .admin-info p { margin: 2px 0 0; font-size: 12px; color: #64748b; }
+        .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; margin-left: 5px; }
+        .badge-owner { background: #fef3c7; color: #92400e; }
+        .badge-admin { background: #dcfce7; color: #166534; }
+        .badge-viewer { background: #f1f5f9; color: #475569; }
+        .badge-inactive { background: #fee2e2; color: #991b1b; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
+        .modal-editor { display: none; background: white; border: 1px solid var(--border); border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .loading { text-align: center; padding: 40px; color: #64748b; }
+      </style>
+    </head>
+    <body>
+      <div id="main-view">
+        <div class="header">
+          <h3>👤 Administradores</h3>
+          <button class="btn btn-primary" onclick="mostrarEditor()">➕ Novo</button>
+        </div>
+        <div id="admin-list"><div class="loading">Carregando...</div></div>
+      </div>
+
+      <div id="editor-view" class="modal-editor">
+        <h3 id="editor-title">Novo Administrador</h3>
+        <input type="hidden" id="edit-id">
+        <div class="form-group">
+          <label>E-mail (Google)</label>
+          <input type="email" id="edit-email" placeholder="exemplo@gmail.com">
+        </div>
+        <div class="form-group">
+          <label>Nome (Opcional)</label>
+          <input type="text" id="edit-nome" placeholder="Nome Completo">
+        </div>
+        <div class="form-group">
+          <label>Papel (Role)</label>
+          <select id="edit-role">
+            <option value="ADMIN">ADMIN (Gestão de Planos)</option>
+            <option value="OWNER">OWNER (Gestão Total + Admins)</option>
+            <option value="VIEWER">VIEWER (Apenas Visualização)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select id="edit-ativo">
+            <option value="true">Ativo</option>
+            <option value="false">Inativo</option>
+          </select>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button class="btn btn-primary" onclick="salvar()">Salvar</button>
+          <button class="btn btn-ghost" onclick="cancelar()">Cancelar</button>
+        </div>
+      </div>
+
+      <script>
+        let admins = [];
+
+        function carregarAdmins() {
+          google.script.run
+            .withSuccessHandler(res => {
+              if (res.success) {
+                admins = res.data;
+                renderList();
+              } else {
+                alert('Erro ao carregar: ' + res.error);
+              }
+            })
+            .listarAdministradoresSistemaRHAPI();
+        }
+
+        function renderList() {
+          const list = document.getElementById('admin-list');
+          if (admins.length === 0) {
+            list.innerHTML = '<div class="loading">Nenhum administrador cadastrado.</div>';
+            return;
+          }
+
+          list.innerHTML = admins.map(a => \`
+            <div class="admin-card">
+              <div class="admin-info">
+                <h4>\${a.nome || 'Sem Nome'} <span class="badge badge-\${a.role.toLowerCase()}">\${a.role}</span> \${!a.ativo ? '<span class="badge badge-inactive">Inativo</span>' : ''}</h4>
+                <p>\${a.email}</p>
+                <p style="font-size: 10px; color: #94a3b8;">Criado em: \${new Date(a.criado_em).toLocaleDateString('pt-BR')}</p>
+              </div>
+              <button class="btn btn-ghost" onclick="editar('\${a.id}')">✏️</button>
+            </div>
+          \`).join('');
+        }
+
+        function mostrarEditor(id = null) {
+          document.getElementById('main-view').style.display = 'none';
+          document.getElementById('editor-view').style.display = 'block';
+          
+          if (id) {
+            const a = admins.find(x => x.id === id);
+            document.getElementById('editor-title').innerText = 'Editar Administrador';
+            document.getElementById('edit-id').value = a.id;
+            document.getElementById('edit-email').value = a.email;
+            document.getElementById('edit-email').disabled = true;
+            document.getElementById('edit-nome').value = a.nome || '';
+            document.getElementById('edit-role').value = a.role;
+            document.getElementById('edit-ativo').value = a.ativo.toString();
+          } else {
+            document.getElementById('editor-title').innerText = 'Novo Administrador';
+            document.getElementById('edit-id').value = '';
+            document.getElementById('edit-email').value = '';
+            document.getElementById('edit-email').disabled = false;
+            document.getElementById('edit-nome').value = '';
+            document.getElementById('edit-role').value = 'ADMIN';
+            document.getElementById('edit-ativo').value = 'true';
+          }
+        }
+
+        function cancelar() {
+          document.getElementById('main-view').style.display = 'block';
+          document.getElementById('editor-view').style.display = 'none';
+        }
+
+        function salvar() {
+          const id = document.getElementById('edit-id').value;
+          const dados = {
+            email: document.getElementById('edit-email').value,
+            nome: document.getElementById('edit-nome').value,
+            role: document.getElementById('edit-role').value,
+            ativo: document.getElementById('edit-ativo').value === 'true'
+          };
+
+          if (!dados.email) return alert('O e-mail é obrigatório.');
+
+          const call = id 
+            ? google.script.run.withSuccessHandler(aposSalvar).atualizarAdministradorSistemaRHAPI(id, dados)
+            : google.script.run.withSuccessHandler(aposSalvar).salvarAdministradorSistemaRHAPI(dados);
+        }
+
+        function aposSalvar(res) {
+          if (res.success) {
+            cancelar();
+            carregarAdmins();
+          } else {
+            alert('Erro: ' + res.error);
+          }
+        }
+
+        function editar(id) {
+          mostrarEditor(id);
+        }
+
+        carregarAdmins();
+      </script>
+    </body>
+    </html>
+    `)
+    .setWidth(450)
+    .setHeight(600)
+    .setTitle('👤 Gerenciamento de Administradores');
+    
+    SpreadsheetApp.getUi().showModalDialog(html, 'Administração');
+}
+
+/**
+ * Diagnóstico avançado sem UI para uso via Script Editor (Logger).
+ */
+function diagnosticarModuloAdminPlanosSemUI() {
+    const logs = [];
+
+    try {
+        logs.push('Diagnóstico do módulo administrativo de planos');
+        logs.push('API base: ' + CONFIG.API_URL);
+        logs.push('Autorização: Google Identity Token via ScriptApp.getIdentityToken()');
+
+        const tokenRes = obterTokenIdentidadeAdminSistemaRH();
+        logs.push('Token de identidade obtido: ' + (tokenRes.success ? 'SIM' : 'NÃO'));
+
+        if (!tokenRes.success) {
+            logs.push('Erro token: ' + tokenRes.error);
+        } else {
+            try {
+                const partes = tokenRes.token.split('.');
+                const payloadJson = Utilities.newBlob(
+                    Utilities.base64DecodeWebSafe(partes[1])
+                ).getDataAsString();
+
+                const payload = JSON.parse(payloadJson);
+
+                logs.push('E-mail no token: ' + payload.email);
+                logs.push('E-mail verificado: ' + payload.email_verified);
+                logs.push('Issuer: ' + payload.iss);
+                logs.push('Audience: ' + payload.aud);
+            } catch (tokenParseErr) {
+                logs.push('Não foi possível decodificar payload do token: ' + tokenParseErr.message);
+            }
+        }
+
+        const testeAuth = chamarApiAdminSistemaRH('/admin/auth/diagnostico', 'get');
+        logs.push('Teste auth admin: ' + (testeAuth.success ? 'SUCESSO' : 'FALHA'));
+        logs.push('Resposta auth admin: ' + JSON.stringify(testeAuth, null, 2));
+
+        const testePlanos = listarPlanosAdminAPI();
+        logs.push('Teste listarPlanosAdminAPI: ' + (testePlanos.success ? 'SUCESSO' : 'FALHA'));
+        logs.push('Resposta planos: ' + JSON.stringify(testePlanos, null, 2));
+
+        const testeDiag = diagnosticarPlanosAdminAPI();
+        logs.push('Teste diagnosticarPlanosAdminAPI: ' + (testeDiag.success ? 'SUCESSO' : 'FALHA'));
+        logs.push('Resposta diagnóstico planos: ' + JSON.stringify(testeDiag, null, 2));
+
+        Logger.log(logs.join('\n\n'));
+
+        return {
+            success: true,
+            logs: logs
+        };
+
+    } catch (e) {
+        logs.push('ERRO GERAL: ' + e.message);
+        Logger.log(logs.join('\n\n'));
+
+        return {
+            success: false,
+            error: e.message,
+            logs: logs
+        };
+    }
+}
+
+/**
+ * Decodifica e exibe as informações do token de identidade atual.
+ */
+function diagnosticarTokenIdentidadeAdminSistemaRH() {
+  const token = ScriptApp.getIdentityToken();
+
+  if (!token) {
+    Logger.log('Token ausente.');
+    SpreadsheetApp.getUi().alert('Token ausente. Verifique o escopo openid.');
+    return;
+  }
+
+  const partes = token.split('.');
+  const payloadBase64 = partes[1];
+
+  const payloadJson = Utilities.newBlob(
+    Utilities.base64DecodeWebSafe(payloadBase64)
+  ).getDataAsString();
+
+  const payload = JSON.parse(payloadJson);
+
+  const resultado = {
+    email: payload.email,
+    email_verified: payload.email_verified,
+    aud: payload.aud,
+    iss: payload.iss,
+    sub_presente: !!payload.sub
+  };
+
+  Logger.log(JSON.stringify(resultado, null, 2));
+
+  SpreadsheetApp.getUi().alert(
+    'Diagnóstico do Token',
+    'E-mail no token: ' + payload.email +
+    '\nE-mail verificado: ' + payload.email_verified +
+    '\nIssuer: ' + payload.iss +
+    '\nAudience: ' + payload.aud,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+

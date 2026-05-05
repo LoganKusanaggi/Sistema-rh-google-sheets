@@ -57,13 +57,14 @@ function onOpen() {
             .addItem('🎁 Benefícios Caju', 'gerarRelatorioBeneficios')
             .addItem('📊 Apuração de Variável', 'gerarRelatorioVariavel')
             .addItem('⏰ Apontamentos', 'gerarRelatorioApontamentos')
-            .addItem('🛡️ Seguros de Vida', 'gerarRelatorioSeguros')
+            .addItem('⏰ Seguros de Vida', 'gerarRelatorioSeguros')
             .addSeparator()
             .addItem('📑 Central de Relatórios (Avançado)', 'mostrarModalRelatoriosAvancados'))
         .addSeparator()
         .addSubMenu(ui.createMenu('⚙️ Configurações')
             .addItem('📋 Gerenciar Planos (Saúde/Odonto)', 'abrirGerenciamentoPlanos')
-            .addItem('👤 Gerenciar Administradores', 'abrirGerenciamentoAdministradoresSistemaRH')
+            .addItem('👤 Gerenciar Acessos e Convites', 'abrirGerenciamentoAdministradoresSistemaRH')
+            .addItem('🧪 Diagnosticar Meu Acesso', 'verificarMeuAcessoSistemaRH')
             .addItem('🧪 Diagnosticar Módulo Planos', 'diagnosticarModuloAdminPlanos')
             .addSeparator()
             .addItem('📁 Configurar Pasta de Relatórios', 'configurarPastaDestino')
@@ -75,6 +76,11 @@ function onOpen() {
         .addItem('🔐 Autorizar PDF/E-mail', 'autorizarPermissoesEmailRelatorio')
         .addItem('🧪 Diagnosticar PDF/E-mail', 'diagnosticarEmailRelatorio')
         .addToUi();
+
+    // Tenta verificar acesso silenciosamente para alertar sobre onboarding
+    try {
+        verificarMeuAcessoSistemaRH(true);
+    } catch (e) {}
 }
 
 // =====================================================
@@ -7648,7 +7654,7 @@ function removerAdministradorSistemaRHAPI(id) {
 }
 
 /**
- * Abre o modal de gerenciamento de administradores.
+ * Abre o modal de gerenciamento de usuários e convites.
  */
 function abrirGerenciamentoAdministradoresSistemaRH() {
     const html = HtmlService.createHtmlOutput(`
@@ -7662,128 +7668,85 @@ function abrirGerenciamentoAdministradoresSistemaRH() {
           --bg: #f8fafc;
           --text: #1e293b;
           --border: #e2e8f0;
+          --success: #166534;
+          --warning: #92400e;
+          --error: #991b1b;
         }
         body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 15px; margin: 0; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+        .tab { padding: 10px 20px; cursor: pointer; font-weight: 500; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
         .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; border: none; font-size: 14px; transition: 0.2s; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: #1d4ed8; }
         .btn-ghost { background: transparent; border: 1px solid var(--border); }
         .btn-ghost:hover { background: #f1f5f9; }
-        .admin-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
-        .admin-info h4 { margin: 0; color: var(--text); }
-        .admin-info p { margin: 2px 0 0; font-size: 12px; color: #64748b; }
+        .btn-sm { padding: 4px 8px; font-size: 11px; }
+        .card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .card-info h4 { margin: 0; color: var(--text); font-size: 14px; }
+        .card-info p { margin: 2px 0 0; font-size: 11px; color: #64748b; }
         .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; margin-left: 5px; }
         .badge-owner { background: #fef3c7; color: #92400e; }
         .badge-admin { background: #dcfce7; color: #166534; }
-        .badge-viewer { background: #f1f5f9; color: #475569; }
-        .badge-inactive { background: #fee2e2; color: #991b1b; }
+        .badge-user { background: #e0f2fe; color: #0369a1; }
+        .badge-pending { background: #fef3c7; color: #92400e; }
+        .badge-accepted { background: #dcfce7; color: #166534; }
+        .badge-revoked { background: #f1f5f9; color: #475569; }
         .form-group { margin-bottom: 15px; }
         label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
         input, select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; box-sizing: border-box; }
-        .modal-editor { display: none; background: white; border: 1px solid var(--border); border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .view-panel { display: none; }
+        .view-panel.active { display: block; }
         .loading { text-align: center; padding: 40px; color: #64748b; }
+        .empty { text-align: center; padding: 20px; color: #94a3b8; font-style: italic; font-size: 13px; }
       </style>
     </head>
     <body>
-      <div id="main-view">
-        <div class="header">
-          <h3>👤 Administradores</h3>
-          <button class="btn btn-primary" onclick="mostrarEditor()">➕ Novo</button>
-        </div>
-        <div id="admin-list"><div class="loading">Carregando...</div></div>
+      <div class="header">
+        <h3 style="margin:0">👤 Gestão de Acessos</h3>
+        <button class="btn btn-primary" onclick="mostrarEditor()">➕ Convidar</button>
       </div>
 
-      <div id="editor-view" class="modal-editor">
-        <h3 id="editor-title">Novo Administrador</h3>
-        <input type="hidden" id="edit-id">
-        <div class="form-group">
-          <label>E-mail (Google)</label>
-          <input type="email" id="edit-email" placeholder="exemplo@gmail.com">
-        </div>
-        <div class="form-group">
-          <label>Nome (Opcional)</label>
-          <input type="text" id="edit-nome" placeholder="Nome Completo">
-        </div>
-        <div class="form-group">
-          <label>Papel (Role)</label>
-          <select id="edit-role">
-            <option value="ADMIN">ADMIN (Gestão de Planos)</option>
-            <option value="OWNER">OWNER (Gestão Total + Admins)</option>
-            <option value="VIEWER">VIEWER (Apenas Visualização)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Status</label>
-          <select id="edit-ativo">
-            <option value="true">Ativo</option>
-            <option value="false">Inativo</option>
-          </select>
-        </div>
-        <div style="display: flex; gap: 10px; margin-top: 20px;">
-          <button class="btn btn-primary" onclick="salvar()">Salvar</button>
-          <button class="btn btn-ghost" onclick="cancelar()">Cancelar</button>
+      <div class="tabs">
+        <div class="tab active" onclick="switchTab('usuarios', this)">Usuários</div>
+        <div class="tab" onclick="switchTab('convites', this)">Convites</div>
+      </div>
+
+      <div id="usuarios-view" class="view-panel active">
+        <div id="usuarios-list"><div class="loading">Carregando...</div></div>
+      </div>
+
+      <div id="convites-view" class="view-panel">
+        <div id="convites-list"><div class="loading">Carregando...</div></div>
+      </div>
+
+      <!-- Modal de Convite -->
+      <div id="editor-view" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); display:none; align-items:center; justify-content:center; padding:20px; z-index:100;">
+        <div style="background:white; width:100%; max-width:350px; border-radius:10px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.1);">
+          <h3 style="margin-top:0">Enviar Convite</h3>
+          <div class="form-group">
+            <label>E-mail do Usuário (Google)</label>
+            <input type="email" id="invite-email" placeholder="usuario@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>Papel (Nível de Acesso)</label>
+            <select id="invite-role">
+              <option value="USER">USER (Operacional RH)</option>
+              <option value="RH_MANAGER">RH_MANAGER (Gerente RH)</option>
+              <option value="ADMIN">ADMIN (Configurador Planos)</option>
+              <option value="OWNER">OWNER (Dono do Sistema)</option>
+              <option value="VIEWER">VIEWER (Apenas Consulta)</option>
+            </select>
+          </div>
+          <div style="display:flex; gap:10px; margin-top:20px;">
+            <button class="btn btn-primary" style="flex:1" onclick="enviarConvite()">Enviar</button>
+            <button class="btn btn-ghost" style="flex:1" onclick="fecharEditor()">Cancelar</button>
+          </div>
         </div>
       </div>
 
       <script>
-        let admins = [];
-
-        function carregarAdmins() {
-          google.script.run
-            .withSuccessHandler(res => {
-              if (res.success) {
-                admins = res.data;
-                renderList();
-              } else {
-                alert('Erro ao carregar: ' + res.error);
-              }
-            })
-            .listarAdministradoresSistemaRHAPI();
-        }
-
-        function renderList() {
-          const list = document.getElementById('admin-list');
-          if (admins.length === 0) {
-            list.innerHTML = '<div class="loading">Nenhum administrador cadastrado.</div>';
-            return;
-          }
-
-          list.innerHTML = admins.map(a => \`
-            <div class="admin-card">
-              <div class="admin-info">
-                <h4>\${a.nome || 'Sem Nome'} <span class="badge badge-\${a.role.toLowerCase()}">\${a.role}</span> \${!a.ativo ? '<span class="badge badge-inactive">Inativo</span>' : ''}</h4>
-                <p>\${a.email}</p>
-                <p style="font-size: 10px; color: #94a3b8;">Criado em: \${new Date(a.criado_em).toLocaleDateString('pt-BR')}</p>
-              </div>
-              <button class="btn btn-ghost" onclick="editar('\${a.id}')">✏️</button>
-            </div>
-          \`).join('');
-        }
-
-        function mostrarEditor(id = null) {
-          document.getElementById('main-view').style.display = 'none';
-          document.getElementById('editor-view').style.display = 'block';
-          
-          if (id) {
-            const a = admins.find(x => x.id === id);
-            document.getElementById('editor-title').innerText = 'Editar Administrador';
-            document.getElementById('edit-id').value = a.id;
-            document.getElementById('edit-email').value = a.email;
-            document.getElementById('edit-email').disabled = true;
-            document.getElementById('edit-nome').value = a.nome || '';
-            document.getElementById('edit-role').value = a.role;
-            document.getElementById('edit-ativo').value = a.ativo.toString();
-          } else {
-            document.getElementById('editor-title').innerText = 'Novo Administrador';
-            document.getElementById('edit-id').value = '';
-            document.getElementById('edit-email').value = '';
-            document.getElementById('edit-email').disabled = false;
-            document.getElementById('edit-nome').value = '';
-            document.getElementById('edit-role').value = 'ADMIN';
-            document.getElementById('edit-ativo').value = 'true';
-          }
-        }
 
         function cancelar() {
           document.getElementById('main-view').style.display = 'block';
@@ -8185,4 +8148,3 @@ function exportarAbaParaPDF(nomeAba) {
         return { success: false, error: e.message };
     }
 }
-

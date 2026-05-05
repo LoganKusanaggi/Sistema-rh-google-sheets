@@ -13,6 +13,8 @@ const planosController = require('../controllers/planosController');
 const dashboardController = require('../controllers/dashboardController');
 const adminUserController = require('../controllers/adminUserController');
 const userReportFolderController = require('../controllers/userReportFolderController');
+const userController = require('../controllers/userController');
+const invitationController = require('../controllers/invitationController');
 
 // Middlewares
 const { authAdminGoogle, requireAdminGoogle } = require('../middlewares/authAdminGoogle');
@@ -32,8 +34,12 @@ router.get('/health', (req, res) => {
 });
 
 // 1.1 ROTAS DE USUÁRIO AUTENTICADO (Qualquer usuário com Google Identity)
+router.get('/me/profile', validateGoogleIdentity, userController.getProfile);
 router.get('/me/report-folder', validateGoogleIdentity, userReportFolderController.obterMinhaPasta);
 router.post('/me/report-folder', validateGoogleIdentity, userReportFolderController.salvarMinhaPasta);
+
+// 1.2 ROTAS PÚBLICAS DE CONVITE
+router.post('/invitations/accept', validateGoogleIdentity, invitationController.accept);
 
 // 2. ROTAS DE NEGÓCIO (Colaboradores, Folha, etc.)
 router.get('/colaboradores', colaboradorController.listarTodos);
@@ -120,6 +126,11 @@ adminRouter.get('/users', requireAdminGoogle(['OWNER', 'ADMIN']), adminUserContr
 adminRouter.post('/users', requireAdminGoogle(['OWNER']), adminUserController.criar);
 adminRouter.patch('/users/:id', requireAdminGoogle(['OWNER']), adminUserController.atualizar);
 adminRouter.delete('/users/:id', requireAdminGoogle(['OWNER']), adminUserController.deletar);
+
+// Gestão de Convites
+adminRouter.get('/invitations', requireAdminGoogle(['OWNER', 'ADMIN']), invitationController.list);
+adminRouter.post('/invitations', requireAdminGoogle(['OWNER', 'ADMIN']), invitationController.create);
+adminRouter.post('/invitations/:id/revoke', requireAdminGoogle(['OWNER', 'ADMIN']), invitationController.revoke);
 
 // Rota de Mapeamento de Rotas (Para debug de 404 em produção)
 adminRouter.get('/routes', authAdminGoogle, (req, res) => {

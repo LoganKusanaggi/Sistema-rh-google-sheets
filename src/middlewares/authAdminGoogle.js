@@ -23,28 +23,28 @@ function requireAdminGoogle(allowedRoles = []) {
     validateGoogleIdentity, // Primeiro valida a identidade Google
     async function (req, res, next) {
       try {
-        const { email, name } = req.authUser;
+        const { email, name, sub } = req.authUser;
 
         // 1. Verificar no Banco de Dados
-        let { data: adminUser, error } = await supabase
-          .from('admin_users')
+        let { data: user, error } = await supabase
+          .from('system_users')
           .select('*')
           .eq('email', email)
-          .eq('ativo', true)
+          .eq('status', 'ACTIVE')
           .single();
 
-        let role = adminUser ? adminUser.role : null;
+        let role = user ? user.role : null;
         let isBootstrap = false;
-        let adminUserId = adminUser ? adminUser.id : null;
+        let userId = user ? user.id : null;
 
         // 2. Fallback de Bootstrap (Emergência)
-        if (!adminUser) {
+        if (!user) {
           // Verificar se existem OWNERS ativos no banco
           const { count } = await supabase
-            .from('admin_users')
+            .from('system_users')
             .select('*', { count: 'exact', head: true })
             .eq('role', 'OWNER')
-            .eq('ativo', true);
+            .eq('status', 'ACTIVE');
 
           const bootstrapEmails = getBootstrapEmails();
           
@@ -54,19 +54,18 @@ function requireAdminGoogle(allowedRoles = []) {
             
             // Auto-seed
             const { data: newUser, error: insertError } = await supabase
-              .from('admin_users')
+              .from('system_users')
               .insert([{
                 email: email,
-                nome: name || 'Bootstrap Admin',
+                google_sub: sub,
                 role: 'OWNER',
-                ativo: true,
-                criado_por: 'SYSTEM_BOOTSTRAP'
+                status: 'ACTIVE'
               }])
               .select()
               .single();
               
             if (!insertError && newUser) {
-              adminUserId = newUser.id;
+              userId = newUser.id;
               console.log(`[Admin Auth] Seed de bootstrap realizado para: ${email}`);
             }
           }
@@ -74,10 +73,10 @@ function requireAdminGoogle(allowedRoles = []) {
 
         // 3. Validação Final de Autorização Admin
         if (!role) {
-          console.warn(`[Admin Auth] Acesso negado: ${email} não é administrador.`);
+          console.warn(`[Admin Auth] Acesso negado: ${email} não é usuário do sistema.`);
           return res.status(403).json({
             success: false,
-            error: 'Seu usuário Google não tem permissão para acessar esta área administrativa.'
+            error: 'Seu usuário Google não está autorizado a acessar este sistema.'
           });
         }
 
@@ -90,29 +89,35 @@ function requireAdminGoogle(allowedRoles = []) {
           });
         }
 
-        // 5. Atualizar último acesso
-        if (adminUserId) {
-          supabase.from('admin_users')
-            .update({ ultimo_acesso_em: new Date().toISOString() })
-            .eq('id', adminUserId)
+        // 5. Atualizar último acesso e Google Sub se necessário
+        if (userId) {
+          const updates = { last_login_at: new Date().toISOString() };
+          if (!user?.google_sub && sub) updates.google_sub = sub;
+
+          supabase.from('system_users')
+            .update(updates)
+            .eq('id', userId)
             .then(() => {});
         }
 
-        // 6. Anexar ao objeto req.admin
+        // 6. Anexar ao objeto req.admin (para compatibilidade) e req.user
         req.admin = {
           email: email,
           role: role,
-          adminUserId: adminUserId,
+          userId: userId,
           isBootstrap: isBootstrap,
-          name: name
+          name: name,
+          tenant_id: user?.tenant_id || 'default'
         };
+
+        req.systemUser = req.admin;
 
         return next();
       } catch (err) {
         console.error('[Admin Auth] Erro interno:', err.message);
         return res.status(500).json({
           success: false,
-          error: 'Erro interno ao validar autorização administrativa.'
+          error: 'Erro interno ao validar autorização.'
         });
       }
     }

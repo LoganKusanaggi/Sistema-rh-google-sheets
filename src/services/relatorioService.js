@@ -562,7 +562,7 @@ class RelatorioService {
                 if (!plano) return;
 
                 const idadeTit = calcularIdade(colab.data_nascimento);
-                const precoTit = (precos || []).find(p => p.plano_id === plano.id && idadeTit >= p.idade_min && idadeTit <= p.idade_max);
+                const precoTit = (precos || []).find(p => p.plano_id === plano.id && idadeTit >= p.faixa_min && idadeTit <= p.faixa_max);
                 const valorTit = precoTit ? precoTit.valor : 0;
 
                 const parteJose = valorTit * 0.20;

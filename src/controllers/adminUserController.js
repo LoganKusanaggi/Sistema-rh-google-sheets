@@ -199,7 +199,7 @@ module.exports = {
         email: req.admin.email,
         name: req.admin.name,
         role: req.admin.role,
-        adminUserId: req.admin.adminUserId,
+        userId: req.admin.userId,
         isBootstrap: req.admin.isBootstrap,
         source: req.admin.isBootstrap ? 'bootstrap' : 'database'
       },

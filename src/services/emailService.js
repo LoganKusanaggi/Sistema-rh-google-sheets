@@ -2,9 +2,15 @@
  * Serviço de e-mail transacional.
  * Atualmente configurado para usar Resend.
  */
-const { Resend } = require('resend');
+let Resend;
+try {
+  Resend = require('resend').Resend;
+} catch (e) {
+  console.warn('[Email Service] Biblioteca "resend" não encontrada. O serviço de e-mail estará desabilitado.');
+}
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+const resend = (Resend && process.env.RESEND_API_KEY) ? new Resend(process.env.RESEND_API_KEY) : null;
+
 
 const emailService = {
   /**
